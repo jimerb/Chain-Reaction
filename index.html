@@ -1,0 +1,117 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Chain Reaction</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Orbitron:wght@400;500;700&family=Rajdhani:wght@400;500;700&display=swap" rel="stylesheet">
+    <link rel="stylesheet" href="style.css">
+    <link rel="icon" href="data:;base64,iVBORw0KGgo="> <!-- Favicon to prevent GET error -->
+    
+    <!-- Load Three.js and related libraries directly -->
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
+    <!-- Use the proper way to include OrbitControls for non-module usage -->
+    <script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/controls/OrbitControls.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/gsap/3.9.1/gsap.min.js"></script> <!-- For animation -->
+</head>
+<body>
+    <div id="game-container">
+
+        <div id="setup-screen">
+            <h1 class="game-title">CHAIN REACTION</h1>
+            <p class="game-subtitle">Nuclear Dice Challenge</p>
+            <img src="logo.png" alt="Chain Reaction Logo" id="setup-logo">
+            <div>
+                <label for="player-name">Your Name:</label>
+                <input type="text" id="player-name" value="Player 1">
+            </div>
+            <div>
+                <label for="player-count">Number of Players:</label>
+                <select id="player-count">
+                    <option value="2">2</option>
+                    <option value="3">3</option>
+                    <option value="4" selected>4</option>
+                    <option value="5">5</option>
+                    <option value="6">6</option>
+                    <option value="7">7</option>
+                    <option value="8">8</option>
+                </select>
+            </div>
+            <button id="start-game-button">Start Game</button>
+        </div>
+
+        <div id="game-screen" class="hidden">
+            <h1 class="game-title">CHAIN REACTION</h1>
+            <img src="logo.png" alt="Chain Reaction Logo" id="game-logo">
+
+            <div id="game-content-wrapper">
+                <div id="scoreboard-area">
+                    <h2>REACTOR SCORES</h2>
+                    <table id="scoreboard">
+                        <thead>
+                            <!-- Player names added dynamically -->
+                        </thead>
+                        <tbody>
+                            <!-- Scores added dynamically -->
+                        </tbody>
+                    </table>
+                    <div id="enhancements-display-area">
+                        <h3>POWER-UPS</h3>
+                        <div class="enhancement-info">
+                            <div class="enhancement-token" id="enrichment-token">E</div>
+                            <span class="enhancement-label">Enrichment: Add 1 to dice</span>
+                        </div>
+                        <div class="enhancement-info">
+                            <div class="enhancement-token" id="controlrod-token">CR</div>
+                            <span class="enhancement-label">Control Rod: Set aside non-chain dice</span>
+                        </div>
+                        <div class="enhancement-info">
+                            <div class="enhancement-token" id="fusion-token">F</div>
+                            <span class="enhancement-label">Fusion: Combine two different dice values</span>
+                        </div>
+                    </div>
+                </div>
+
+                <div id="game-main-content">
+                    <div id="threejs-canvas-container">
+                        <!-- Three.js canvas will be inserted here -->
+                    </div>
+
+                    <div id="message-area">
+                        <p id="game-message"></p>
+                        <p id="turn-info"></p>
+                        <p id="chain-info"></p>
+                    </div>
+
+                    <div id="controls-area">
+                        <button id="roll-button" class="hidden">Roll Dice</button>
+                        <button id="continue-button" class="hidden">Continue Rolling</button>
+                        <button id="stop-button" class="hidden">Stop & Score</button>
+
+                        <!-- Enhancement Buttons Area -->
+                        <div id="enhancement-buttons" class="enhancement-controls hidden">
+                            <p>Use Enhancement (Once per game):</p>
+                            <button id="enrichment-button" data-enhancement="enrichment" class="enhancement-button" disabled>Enrichment</button>
+                            <button id="controlrod-button" data-enhancement="controlRod" class="enhancement-button" disabled>Control Rod</button>
+                            <button id="fusion-button" data-enhancement="fusion" class="enhancement-button" disabled>Fusion</button>
+                        </div>
+                        <p id="enhancement-prompt" class="hidden"></p>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+    </div>
+
+    <!-- Game Modules - Load in correct order -->
+    <script src="utils.js"></script>
+    <script src="uiManager.js"></script>
+    <script src="diceController.js"></script>
+    <script src="gameManager.js"></script>
+    <script src="enhancementController.js"></script>
+    <script src="main.js"></script>
+
+</body>
+</html>

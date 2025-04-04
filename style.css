@@ -1,0 +1,435 @@
+/* Global Styles */
+:root {
+    --primary-bg: #0e1216;
+    --secondary-bg: #1a2026;
+    --accent-color: #10ff00;
+    --accent-dim: #0d8c06;
+    --text-color: #e0e0e0;
+    --header-color: #ffffff;
+    --button-bg: #2a3138;
+    --button-hover: #3d444c;
+    --button-text: #ffffff;
+    --button-disabled: #4d5359;
+    --shadow-color: rgba(0, 0, 0, 0.5);
+    --border-color: #2c3440;
+    --enhancement-bg: rgba(16, 255, 0, 0.1);
+}
+
+body {
+    margin: 0;
+    padding: 0;
+    background-color: var(--primary-bg);
+    color: var(--text-color);
+    font-family: 'Rajdhani', sans-serif;
+    overflow: hidden;
+    min-height: 100vh;
+    display: flex;
+    flex-direction: column;
+}
+
+/* Container Styles */
+#game-container {
+    width: 100%;
+    height: 100vh;
+    display: flex;
+    justify-content: center;
+    align-items: center;
+    position: relative;
+}
+
+/* Setup Screen Styles */
+#setup-screen {
+    background-color: var(--secondary-bg);
+    padding: 2rem;
+    border-radius: 1rem;
+    box-shadow: 0 0 30px var(--shadow-color);
+    text-align: center;
+    width: 400px;
+    border: 2px solid var(--accent-dim);
+}
+
+#setup-screen h1.game-title {
+    font-family: 'Orbitron', sans-serif;
+    color: var(--accent-color);
+    font-size: 2.5rem;
+    margin-bottom: 0.25rem;
+    text-shadow: 0 0 10px var(--accent-dim);
+    letter-spacing: 2px;
+}
+
+#setup-screen .game-subtitle {
+    font-family: 'Rajdhani', sans-serif;
+    color: var(--text-color);
+    font-size: 1.2rem;
+    margin-top: 0;
+    margin-bottom: 1.5rem;
+}
+
+#setup-logo {
+    max-width: 200px;
+    margin-bottom: 2rem;
+}
+
+#setup-screen div {
+    margin-bottom: 1.5rem;
+}
+
+#setup-screen label {
+    display: block;
+    margin-bottom: 0.5rem;
+    font-weight: bold;
+    color: var(--header-color);
+}
+
+#setup-screen input,
+#setup-screen select {
+    width: 100%;
+    padding: 0.75rem;
+    border: 1px solid var(--border-color);
+    border-radius: 0.5rem;
+    background-color: var(--button-bg);
+    color: var(--text-color);
+    font-family: 'Rajdhani', sans-serif;
+    font-size: 1rem;
+}
+
+/* Game Screen Styles */
+#game-screen {
+    width: 100%;
+    height: 100vh;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    overflow: hidden; /* Prevent scrolling */
+}
+
+#game-screen h1.game-title {
+    font-family: 'Orbitron', sans-serif;
+    color: var(--accent-color);
+    font-size: 1.8rem;
+    margin: 0.5rem 0;
+    text-shadow: 0 0 10px var(--accent-dim);
+    letter-spacing: 2px;
+}
+
+#game-logo {
+    position: absolute;
+    top: 10px;
+    right: 10px;
+    width: 120px; /* Increased logo size */
+    z-index: 10;
+}
+
+#game-content-wrapper {
+    display: flex;
+    width: 100%;
+    height: calc(100vh - 60px); /* Full viewport height minus header */
+    overflow: hidden; /* Prevent scrolling */
+}
+
+/* Scoreboard Styles */
+#scoreboard-area {
+    width: 320px; /* Increased width slightly more */
+    background-color: var(--secondary-bg);
+    padding: 1rem;
+    border-right: 2px solid var(--accent-dim);
+    display: flex;
+    flex-direction: column;
+    overflow-y: auto; /* Allow scrolling if needed */
+}
+
+#scoreboard-area h2 {
+    font-family: 'Orbitron', sans-serif;
+    color: var(--accent-color);
+    font-size: 1.3rem;
+    margin-top: 0;
+    text-align: center;
+    letter-spacing: 1px;
+    text-shadow: 0 0 5px var(--accent-dim);
+}
+
+#scoreboard {
+    width: 100%;
+    border-collapse: collapse;
+    margin-bottom: 1rem;
+    font-size: 1.1rem; /* Increased font size */
+}
+
+#scoreboard th,
+#scoreboard td {
+    padding: 0.6rem;
+    border-bottom: 1px solid var(--border-color);
+    text-align: center;
+}
+
+#scoreboard th {
+    background-color: var(--button-bg);
+    color: var(--accent-color);
+    font-weight: bold;
+}
+
+#scoreboard .current-player {
+    background-color: var(--enhancement-bg);
+    color: var(--accent-color);
+    font-weight: bold;
+}
+
+/* Current player indicator */
+#scoreboard tr.current-player td {
+    background-color: rgba(16, 255, 0, 0.2);
+    border-left: 3px solid var(--accent-color);
+    border-right: 3px solid var(--accent-color);
+    font-weight: bold;
+}
+
+/* Enhancements Display */
+#enhancements-display-area {
+    margin-top: auto;
+    background-color: var(--enhancement-bg);
+    border-radius: 0.5rem;
+    padding: 1rem;
+    border: 1px solid var(--accent-dim);
+}
+
+#enhancements-display-area h3 {
+    text-align: center;
+    margin-top: 0;
+    margin-bottom: 1rem;
+    color: var(--accent-color);
+    font-family: 'Orbitron', sans-serif;
+    font-size: 1.1rem;
+    letter-spacing: 1px;
+}
+
+.enhancement-token {
+    display: inline-block;
+    width: 50px; /* Larger tokens */
+    height: 50px; /* Larger tokens */
+    margin: 0.5rem; /* More space between tokens */
+    border-radius: 50%;
+    border: 2px solid var(--accent-color);
+    background-color: var(--secondary-bg);
+    color: var(--accent-color);
+    font-weight: bold;
+    text-align: center;
+    line-height: 50px; /* Match the height */
+    font-size: 1rem; /* Larger text */
+    box-shadow: 0 0 10px var(--accent-dim);
+    transition: all 0.3s ease;
+}
+
+.enhancement-token.used {
+    opacity: 0.3;
+    box-shadow: none;
+}
+
+.enhancement-info {
+    display: flex;
+    align-items: center;
+    margin-bottom: 12px;
+}
+
+.enhancement-info .enhancement-token {
+    margin-right: 12px;
+}
+
+.enhancement-label {
+    display: block;
+    font-size: 0.9rem;
+    color: var(--text-color);
+    margin-bottom: 0.5rem;
+    text-align: center;
+}
+
+/* Game Main Content */
+#game-main-content {
+    flex: 1;
+    display: flex;
+    flex-direction: column;
+    height: 100%;
+    position: relative; /* Important for proper layout */
+    overflow: hidden; /* Prevent scrolling */
+}
+
+/* Three.js Canvas Container */
+#threejs-canvas-container {
+    flex: 1;
+    position: relative;
+    height: calc(100% - 180px); /* Adjusted to leave room for message area and controls */
+}
+
+/* Message Area */
+#message-area {
+    background-color: var(--secondary-bg);
+    padding: 0.75rem;
+    text-align: center;
+    border-top: 2px solid var(--accent-dim);
+    font-size: 1.1rem;
+    z-index: 10;
+}
+
+#game-message {
+    color: var(--accent-color);
+    font-weight: bold;
+    margin: 0.25rem 0;
+    font-family: 'Orbitron', sans-serif;
+}
+
+#turn-info, #chain-info {
+    margin: 0.25rem 0;
+}
+
+/* Controls Area */
+#controls-area {
+    background-color: var(--secondary-bg);
+    padding: 1rem;
+    display: flex;
+    justify-content: center;
+    align-items: center;
+    flex-wrap: wrap; /* Allow wrapping on smaller screens */
+    gap: 1rem;
+    border-top: 1px solid var(--border-color);
+    width: 100%;
+    box-sizing: border-box;
+    z-index: 10;
+}
+
+button {
+    background-color: var(--button-bg);
+    color: var(--button-text);
+    border: none;
+    border-radius: 0.5rem;
+    padding: 0.75rem 1.5rem;
+    font-size: 1rem;
+    cursor: pointer;
+    transition: background-color 0.3s, transform 0.2s, box-shadow 0.3s;
+    font-family: 'Rajdhani', sans-serif;
+    font-weight: bold;
+    letter-spacing: 0.5px;
+}
+
+button:hover:not(:disabled) {
+    background-color: var(--button-hover);
+    transform: translateY(-2px);
+    box-shadow: 0 4px 8px var(--shadow-color);
+}
+
+button:active:not(:disabled) {
+    transform: translateY(0);
+    box-shadow: none;
+}
+
+button:disabled {
+    background-color: var(--button-disabled);
+    cursor: not-allowed;
+    opacity: 0.7;
+}
+
+#roll-button {
+    background-color: var(--accent-dim);
+}
+
+#roll-button:hover:not(:disabled) {
+    background-color: var(--accent-color);
+    color: var(--primary-bg);
+}
+
+/* Enhancement Controls */
+#enhancement-buttons {
+    display: flex;
+    flex-wrap: wrap;
+    justify-content: center;
+    align-items: center;
+    gap: 0.5rem;
+    margin-top: 0.5rem;
+}
+
+#enhancement-buttons p {
+    margin: 0;
+    width: 100%;
+    text-align: center;
+    font-size: 0.9rem;
+    color: var(--accent-color);
+}
+
+.enhancement-button {
+    padding: 0.5rem 1rem;
+    font-size: 0.9rem;
+    background-color: var(--enhancement-bg);
+    border: 1px solid var(--accent-dim);
+    color: var(--accent-color);
+}
+
+.enhancement-button:hover:not(:disabled) {
+    background-color: var(--accent-dim);
+    color: var(--button-text);
+}
+
+#enhancement-prompt {
+    color: var(--accent-color);
+    font-weight: bold;
+    margin: 0.5rem 0;
+    text-align: center;
+}
+
+/* Utility Classes */
+.hidden {
+    display: none !important;
+}
+
+/* Remove the unknown green box that appears in the lower left */
+#threejs-stats {
+    display: none !important;
+}
+
+/* Responsive Adjustments */
+@media (max-width: 768px) {
+    #game-content-wrapper {
+        flex-direction: column;
+    }
+    
+    #scoreboard-area {
+        width: 100%;
+        height: auto;
+        border-right: none;
+        border-bottom: 2px solid var(--accent-dim);
+    }
+    
+    #game-logo {
+        width: 80px;
+    }
+}
+
+/* Animations and Effects */
+@keyframes glow {
+    0% { box-shadow: 0 0 10px var(--accent-dim); }
+    50% { box-shadow: 0 0 20px var(--accent-color); }
+    100% { box-shadow: 0 0 10px var(--accent-dim); }
+}
+
+.glow-effect {
+    animation: glow 2s infinite;
+}
+
+/* Add pulse effect to important buttons */
+#start-game-button, #roll-button, #stop-button {
+    position: relative;
+    overflow: hidden;
+}
+
+#start-game-button::after, #roll-button::after, #stop-button::after {
+    content: '';
+    position: absolute;
+    top: 0;
+    left: 0;
+    width: 100%;
+    height: 100%;
+    background: linear-gradient(45deg, transparent, rgba(16, 255, 0, 0.2), transparent);
+    transform: translateX(-100%);
+    transition: 0.5s;
+    pointer-events: none;
+}
+
+#start-game-button:hover::after, #roll-button:hover::after, #stop-button:hover::after {
+    transform: translateX(100%);
+}
