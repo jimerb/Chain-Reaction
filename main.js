@@ -124,13 +124,19 @@ function onWindowResize() {
 
 function handleInteraction(object) {
     console.log('Clicked on:', object.userData);
+    const canSelect = gameManager.canSelectDie(); // Check condition first
+    console.log(`   Checking gameManager.canSelectDie(): ${canSelect}`);
+
     // Delegate interaction based on object type
-    if (object.userData.type === 'die' && gameManager.canSelectDie()) {
+    if (object.userData.type === 'die' && canSelect) {
+        console.log("   Condition met: Calling gameManager.handleDieClick()");
         gameManager.handleDieClick(object);
     } else if (object.userData.type === 'enhancementToken' && gameManager.canUseEnhancement(object.userData.enhancementType)) {
         enhancementController.attemptUseEnhancement(object.userData.enhancementType, object.userData.playerId);
     } else if (object.userData.type === 'selectableDieForEnrichment' && gameManager.isWaitingForEnrichmentTarget()) {
          enhancementController.selectEnrichmentTarget(object);
+    } else {
+        console.log("   Condition NOT met for die click or other interaction.");
     }
 }
 

@@ -279,7 +279,7 @@ body {
     margin: 0.25rem 0;
 }
 
-/* Controls Area */
+/* Controls Area - Updated styles to ensure buttons are visible */
 #controls-area {
     background-color: var(--secondary-bg);
     padding: 1rem;
@@ -291,7 +291,8 @@ body {
     border-top: 1px solid var(--border-color);
     width: 100%;
     box-sizing: border-box;
-    z-index: 10;
+    z-index: 100; /* Increased z-index to ensure buttons are above other elements */
+    position: relative; /* Ensure position context for z-index */
 }
 
 button {
@@ -325,13 +326,48 @@ button:disabled {
     opacity: 0.7;
 }
 
+#roll-button, #continue-button, #stop-button {
+    min-width: 150px;
+    margin: 0 10px;
+    font-size: 1.1rem;
+    padding: 10px 20px;
+    box-shadow: 0 0 10px rgba(0,0,0,0.3);
+    border: 2px solid transparent;
+}
+
 #roll-button {
     background-color: var(--accent-dim);
+    border-color: var(--accent-color);
+}
+
+#continue-button {
+    background-color: var(--button-bg);
+    border-color: #2196F3;
+    color: #2196F3;
+}
+
+#stop-button {
+    background-color: var(--button-bg);
+    border-color: #ff5722;
+    color: #ff5722;
 }
 
 #roll-button:hover:not(:disabled) {
     background-color: var(--accent-color);
     color: var(--primary-bg);
+    transform: translateY(-3px);
+}
+
+#continue-button:hover:not(:disabled) {
+    background-color: #2196F3;
+    color: white;
+    transform: translateY(-3px);
+}
+
+#stop-button:hover:not(:disabled) {
+    background-color: #ff5722;
+    color: white;
+    transform: translateY(-3px);
 }
 
 /* Enhancement Controls */

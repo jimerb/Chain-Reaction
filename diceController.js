@@ -187,10 +187,13 @@ class DiceController {
             
             return new Promise((resolve) => {
                 // Generate random position within table bounds (with padding)
-                const tableSize = TABLE_WIDTH - DICE_SIZE;
-                const padding = DICE_SIZE * 0.6;
-                const xPos = (Math.random() * (tableSize - padding * 2) - (tableSize - padding * 2) / 2);
-                const zPos = (Math.random() * (tableSize - padding * 2) - (tableSize - padding * 2) / 2);
+                const tableWidth = TABLE_WIDTH * 0.8; // Reduce effective area to 80%
+                const tableDepth = TABLE_DEPTH * 0.8; // Reduce effective area to 80%
+                const padding = DICE_SIZE * 1.2; // Increased padding
+                
+                // More conservative positioning to ensure dice stay on table
+                const xPos = (Math.random() * (tableWidth - padding * 2) - (tableWidth - padding * 2) / 2);
+                const zPos = (Math.random() * (tableDepth - padding * 2) - (tableDepth - padding * 2) / 2);
                 
                 // Store the target position for reference
                 die.userData.targetPosition = new THREE.Vector3(xPos, DICE_SIZE / 2 + 0.1, zPos);
@@ -294,6 +297,27 @@ class DiceController {
         console.log("--- Finished Resetting Dice Appearance ---");
     }
 
+    resetDice() {
+        console.log("DiceController: Resetting all dice positions and states.");
+        this.dice.forEach((die, index) => {
+            // Reset position to initial
+            if (index < DICE_POSITIONS.length) {
+                 die.position.copy(DICE_POSITIONS[index]);
+            } else {
+                 // Fallback if more dice than defined positions (shouldn't happen with 5)
+                 die.position.set(0, DICE_SIZE / 2 + 0.1, 0);
+            }
+            die.rotation.set(0, 0, 0); // Reset rotation
+            die.userData.isRolling = false;
+            die.userData.isSetAside = false;
+            die.userData.value = undefined; // Clear stored value if any
+            die.visible = true; // Ensure dice are visible
+            // No physics engine currently, so no need to reset physics state
+        });
+        this.diceValues = []; // Clear cached values
+        this.unhighlightDice(); // Remove any leftover highlights
+    }
+
     // Method to highlight all validated potential chains simultaneously
     highlightAllPotentialChains(validatedChains) {
         console.log("--- Highlighting All Potential Chains --- Input (Validated):", JSON.stringify(validatedChains));
@@ -375,8 +399,11 @@ class DiceController {
                 // Move visually to the side area
                 // Calculate target position based on how many are already there
                 const asideIndex = this.dice.filter(d => d.userData.isSetAside).length - 1; // 0-based index of this die among those set aside
-                const targetX = -TABLE_WIDTH / 2 + (asideIndex * (DICE_SIZE * 1.2));
-                const targetZ = -TABLE_DEPTH / 2 + DICE_SIZE * 1.5;
+                
+                // Position at the BOTTOM of the table instead of left side
+                // Using negative Z values to place at the bottom
+                const targetX = (asideIndex * (DICE_SIZE * 1.2)) - ((diceIndices.length - 1) * DICE_SIZE * 0.6); // Center the group
+                const targetZ = TABLE_DEPTH / 2 - DICE_SIZE * 1.5; // Bottom of table with margin
                 
                 console.log(`   Moving Die ${index} to aside position: X=${targetX.toFixed(2)}, Z=${targetZ.toFixed(2)}`);
                 gsap.to(die.position, {
@@ -581,7 +608,40 @@ class DiceController {
             }
         });
     }
-}
+    
+    highlightAllChainDice(diceIndices, color = new THREE.Color(0x10ff00)) {
+        console.log(`Highlighting entire chain with indices:`, diceIndices);
+        
+        // Highlight each die in this chain regardless of setAside status
+        diceIndices.forEach(index => {
+            if (index >= 0 && index < this.dice.length) {
+                const die = this.dice[index];
+                
+                // Clone materials to avoid affecting other dice
+                const highlightMaterials = this.diceMaterials.map(mat => mat.clone());
+                
+                // Apply glow highlight with the specified color
+                highlightMaterials.forEach(mat => {
+                    mat.emissive = color;
+                    mat.emissiveIntensity = 0.5;
+                });
+                
+                die.material = highlightMaterials;
+            } else {
+                console.warn(`Invalid die index: ${index}`);
+            }
+        });
+    }
+    
+    unhighlightDice() {
+        this.dice.forEach(die => {
+            if (!die.userData.isSetAside) {
+                // Restore original materials
+                die.material = this.diceMaterials;
+            }
+        });
+    }
+} // <-- This closing brace was moved to enclose the unhighlightDice method correctly
 
 // Expose the class to global scope for traditional script loading
 window.DiceController = DiceController;

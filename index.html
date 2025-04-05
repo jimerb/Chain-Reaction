@@ -86,9 +86,9 @@
                     </div>
 
                     <div id="controls-area">
-                        <button id="roll-button" class="hidden">Roll Dice</button>
-                        <button id="continue-button" class="hidden">Continue Rolling</button>
-                        <button id="stop-button" class="hidden">Stop & Score</button>
+                        <button id="roll-button">Roll Dice</button>
+                        <button id="continue-button">Continue Rolling</button>
+                        <button id="stop-button">Stop & Score</button>
 
                         <!-- Enhancement Buttons Area -->
                         <div id="enhancement-buttons" class="enhancement-controls hidden">
@@ -107,6 +107,7 @@
 
     <!-- Game Modules - Load in correct order -->
     <script src="utils.js"></script>
+    <script src="diceLogic.js"></script>
     <script src="uiManager.js"></script>
     <script src="diceController.js"></script>
     <script src="gameManager.js"></script>

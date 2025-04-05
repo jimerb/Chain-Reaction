@@ -143,5 +143,7 @@ const result5 = AssessDiceRoll(example5);
 console.log(`\nInput: ${example5}`);
 console.log("Output:", result5);
 
-// Export the function if using modules (e.g., Node.js)
-module.exports = AssessDiceRoll;
+// Remove Node.js specific export for browser compatibility
+// module.exports = AssessDiceRoll;
+
+// Remove redundant global assignment - defining the function is enough

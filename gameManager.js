@@ -3,6 +3,13 @@
 
 const TARGET_SCORE = 100;
 
+// We're now using the global AssessDiceRoll from diceLogic.js,
+// which is loaded via a script tag before this file.
+// No need to import or redefine it - checking that it's available:
+if (typeof AssessDiceRoll !== 'function') {
+    console.error("ERROR: AssessDiceRoll function not found! Make sure diceLogic.js is loaded before gameManager.js");
+}
+
 class Player {
     constructor(id, name, isHuman = false) {
         this.id = id;
@@ -48,11 +55,12 @@ class GameManager {
         this.gameRound = 1; // Track rounds for tie-breaking and fairness
         
         // Turn state
-        this.phase = 'SETUP'; // SETUP, ROLL, CHAIN_SELECTION, DECISION, EXTEND, MELTDOWN_CHECK, SCORING, END
+        this.phase = 'SETUP'; // SETUP, ROLL, CHAIN_SELECTION, DECISION, CHAIN_SWITCH_DECISION, EXTEND, MELTDOWN_CHECK, SCORING, END
         this.currentRoll = [];
         this.chainNumber = null;
         this.chainDice = [];
         this.potentialChains = [];
+        this.newPotentialChain = null; // For storing a new potential chain when one already exists
         this.radiationLeakValue = null;
         this.enhancementUsedThisTurn = false;
         this.waitingForEnrichmentTarget = false;
@@ -112,10 +120,33 @@ class GameManager {
     handleContinueAction() {
         if (this.phase !== 'DECISION') return;
         
-        this.phase = 'ROLL';
-        this.uiManager.showRollButton(true);
-        this.uiManager.showEnhancementButtons(false);
-        this.uiManager.displayMessage(`${this.getCurrentPlayer().name} continues rolling!`);
+        console.log("--- Handling Continue Action ---");
+        console.log("   Current chain dice (to keep):", JSON.stringify(this.chainDice));
+        
+        // Determine which dice to roll (those *not* in the chain)
+        const allDiceIndices = this.diceController.dice.map(die => die.userData.id);
+        const diceToRollIndices = allDiceIndices.filter(index => !this.chainDice.includes(index));
+        
+        console.log("   All dice indices:", allDiceIndices);
+        console.log("   Indices to roll:", diceToRollIndices);
+        
+        if (diceToRollIndices.length === 0) {
+            console.log("   No remaining dice to roll. Stopping turn instead.");
+            this.handleStopAction(); // If all dice are part of the chain, just score.
+            return;
+        }
+        
+        this.phase = 'ROLL'; // Change phase *before* async roll call
+        this.uiManager.hideAllButtons(); // Hide decision buttons immediately
+        this.uiManager.displayMessage(`${this.getCurrentPlayer().name} continues rolling with ${diceToRollIndices.length} dice...`);
+        
+        // Roll ONLY the dice that are NOT part of the current chain
+        this.diceController.rollDice(diceToRollIndices).then(() => {
+            console.log("   Roll completed after continue action.");
+            this.afterRoll(); // Process the results of the new roll
+        });
+        
+        console.log("--- Exiting Handle Continue Action (Roll Initiated) ---");
     }
     
     handleStopAction() {
@@ -148,11 +179,11 @@ class GameManager {
             return;
         }
 
-        // Determine the value of the clicked die from the current roll results
+        // Check if this die is already set aside - if so, ignore the click
         const clickedDieData = this.currentRoll.find(d => d.index === die.userData.id);
-        
-        if (!clickedDieData) {
-            console.error(`   Error: Could not find data for clicked die index ${die.userData.id} in currentRoll.`);
+        if (!clickedDieData || clickedDieData.setAside) {
+            console.log(`   Ignoring click on die ${die.userData.id} - die is already set aside or invalid.`);
+            this.uiManager.displayMessage("This die is already part of a chain. Select an active die.", "warning");
             return;
         }
         
@@ -188,6 +219,76 @@ class GameManager {
         const activeDice = this.currentRoll.filter(die => !die.setAside);
         console.log(" Filtered Active Dice:", JSON.stringify(activeDice));
 
+        // Check if we already have a chain and need to extend it with newly rolled dice
+        if (this.chainNumber !== null && this.chainDice.length > 0) {
+            console.log(" Checking for chain extension with value:", this.chainNumber);
+            
+            // First, we need to run AssessDiceRoll on all dice to properly determine chain membership
+            // Extract values for AssessDiceRoll (including set aside dice)
+            const allDiceValuesArray = this.currentRoll.map(die => die.value);
+            console.log(" All Dice Values Array for chain extension check:", allDiceValuesArray);
+            
+            // Run AssessDiceRoll to get proper chain membership
+            const assessmentResult = AssessDiceRoll(allDiceValuesArray);
+            console.log(" Extension AssessDiceRoll Result:", JSON.stringify(assessmentResult));
+            
+            // Find which chain (if any) matches our current chain value
+            let chainId = 0; // 0=none, 1=Chain1, 2=Chain2
+            if (assessmentResult.Chain1Number === this.chainNumber) {
+                chainId = 1;
+            } else if (assessmentResult.Chain2Number === this.chainNumber) {
+                chainId = 2;
+            }
+            
+            console.log(` Chain with value ${this.chainNumber} has chainId: ${chainId}`);
+            
+            if (chainId > 0) {
+                // Now find newly rolled dice that are part of this chain but not yet set aside
+                const matchingNewDice = [];
+                
+                for (let i = 0; i < 5; i++) {
+                    // Check if this die belongs to our chain based on AssessDiceRoll
+                    if (assessmentResult[`Die${i+1}`] === chainId) {
+                        const die = this.currentRoll[i];
+                        if (!die.setAside) {
+                            matchingNewDice.push(die.index);
+                        }
+                    }
+                }
+                
+                console.log(" Found matching new dice for existing chain using AssessDiceRoll:", matchingNewDice);
+                
+                if (matchingNewDice.length > 0) {
+                    console.log(" Extending existing chain with", matchingNewDice.length, "additional dice");
+                    
+                    // Add these dice to the existing chain
+                    this.chainDice = [...this.chainDice, ...matchingNewDice];
+                    
+                    // Set these dice aside
+                    this.diceController.setDiceAside(matchingNewDice);
+                    
+                    // Highlight all dice in the chain with the same color
+                    this.diceController.highlightAllChainDice(this.chainDice);
+                    
+                    // Update UI to reflect the extended chain
+                    const chainScore = this.chainNumber * this.chainDice.length;
+                    this.uiManager.updateChainInfo(this.chainDice.length, chainScore);
+                    this.uiManager.displayMessage(`Chain extended! ${matchingNewDice.length} additional dice added to your chain of ${this.chainNumber}s (now ${this.chainDice.length} total). Continue or Stop?`, true);
+                    
+                    // Move to decision phase to let player decide to continue or stop
+                    this.phase = 'DECISION';
+                    this.uiManager.showTurnChoiceButtons(true);
+                    return;
+                }
+            }
+            
+            // At this point, we have a chain but no matching dice and no new chains were found,
+            console.log(" No matching dice and no new chains - this is a MELTDOWN!");
+            this.uiManager.displayMessage("MELTDOWN! No matching dice for your chain and no new chains. Your turn ends with 0 points.", "error");
+            this.endTurn();
+            return; // Stop further processing for this roll
+        }
+
         // Ensure activeDice are valid
         if (!activeDice || activeDice.length === 0) {
             console.warn(" No active dice found after roll. Ending turn prematurely.");
@@ -195,7 +296,24 @@ class GameManager {
             return;
         }
 
-        // Group active dice by value
+        // Extract just the values for AssessDiceRoll
+        const allDiceValuesArray = this.currentRoll.map(die => die.value);
+        console.log(" All Dice Values Array for AssessDiceRoll:", allDiceValuesArray);
+
+        // Validate that we have the AssessDiceRoll function
+        if (typeof AssessDiceRoll !== 'function') {
+            console.error("CRITICAL ERROR: AssessDiceRoll function is not available!");
+            this.uiManager.displayMessage("Game error: Chain detection function not available. Please refresh the page.", "error");
+            return;
+        }
+
+        // Use AssessDiceRoll to analyze the dice
+        console.log(" Calling AssessDiceRoll with values:", allDiceValuesArray);
+        const assessmentResult = AssessDiceRoll(allDiceValuesArray);
+        console.log(" AssessDiceRoll Result:", JSON.stringify(assessmentResult));
+
+        // Group active dice by value - keeping this for compatibility with existing code 
+        // and because it's useful for additional logic
         console.log(" Grouping Active Dice by Value...");
         const diceByValue = activeDice.reduce((acc, die) => {
             console.log(`  Processing Die Index ${die.index}, Value: ${die.value}, SetAside: ${die.setAside}`);
@@ -237,36 +355,60 @@ class GameManager {
             return; // Stop further processing for this roll
         }
 
-        // --- Chain Detection --- 
+        // --- Chain Detection using AssessDiceRoll --- 
         this.potentialChains = [];
-        console.log("--- Starting Chain Detection from Grouped Dice ---");
-        for (const [valueStr, dice] of Object.entries(diceByValue)) {
-            const value = parseInt(valueStr);
-            const count = dice.length;
-            console.log(` Evaluating Group: Value=${value}, Count=${count}`);
-            if (count >= 2) {
-                const diceIndices = dice.map(die => die.index);
-                console.log(`   -> Potential Chain Found: Value=${value}, Count=${count}, Indices=${JSON.stringify(diceIndices)}`);
-                this.potentialChains.push({
-                    value: value,
-                    count: count,
-                    diceIndices: diceIndices
-                });
-            } else {
-                console.log(`   -> Skipping Group: Value=${value}, Count=${count} (less than 2)`);
+        console.log("--- Starting Chain Detection from AssessDiceRoll Results ---");
+        
+        // Process Chain 1 if it exists
+        if (assessmentResult.Chain1Size >= 2) {
+            const chain1DiceIndices = [];
+            
+            // Map the Die1-Die5 membership to actual dice indices
+            for (let i = 0; i < 5; i++) {
+                if (assessmentResult[`Die${i+1}`] === 1) { // Die belongs to Chain1
+                    // Get the die index from the currentRoll array
+                    const dieIndex = this.currentRoll[i].index;
+                    chain1DiceIndices.push(dieIndex);
+                }
             }
+            
+            console.log(`   -> Chain 1 Found: Value=${assessmentResult.Chain1Number}, Count=${assessmentResult.Chain1Size}, Indices=${JSON.stringify(chain1DiceIndices)}`);
+            
+            this.potentialChains.push({
+                value: assessmentResult.Chain1Number,
+                count: assessmentResult.Chain1Size,
+                diceIndices: chain1DiceIndices
+            });
         }
+        
+        // Process Chain 2 if it exists
+        if (assessmentResult.Chain2Size >= 2) {
+            const chain2DiceIndices = [];
+            
+            // Map the Die1-Die5 membership to actual dice indices
+            for (let i = 0; i < 5; i++) {
+                if (assessmentResult[`Die${i+1}`] === 2) { // Die belongs to Chain2
+                    // Get the die index from the currentRoll array
+                    const dieIndex = this.currentRoll[i].index;
+                    chain2DiceIndices.push(dieIndex);
+                }
+            }
+            
+            console.log(`   -> Chain 2 Found: Value=${assessmentResult.Chain2Number}, Count=${assessmentResult.Chain2Size}, Indices=${JSON.stringify(chain2DiceIndices)}`);
+            
+            this.potentialChains.push({
+                value: assessmentResult.Chain2Number,
+                count: assessmentResult.Chain2Size,
+                diceIndices: chain2DiceIndices
+            });
+        }
+        
         console.log("--- Finished Chain Detection ---");
         console.log(" Final Potential Chains Array:", JSON.stringify(this.potentialChains));
 
         // Check for radiation leak (all 5 dice different values, none set aside)
-        const uniqueValuesCount = Object.keys(diceByValue).length;
-        const activeDiceCount = activeDice.length;
-        console.log(` Radiation Leak Check: Active Dice=${activeDiceCount}, Unique Values=${uniqueValuesCount}`);
-        
-        // Radiation leak condition: 5 active dice, 5 unique values
-        if (activeDiceCount === 5 && uniqueValuesCount === 5) { 
-            console.log(" Radiation Leak Detected!");
+        if (assessmentResult.ChainCount === 0 && activeDice.length === 5) {
+            console.log(" Radiation Leak Detected (All 5 dice have different values)!");
             this.uiManager.displayMessage("Radiation Leak! All 6s will be set aside in future rolls.", true);
             this.radiationLeakValue = 6; // Mark 6s for future removal
             this.endTurn();
@@ -277,19 +419,17 @@ class GameManager {
         if (this.potentialChains.length === 0) {
             console.log(" No potential chains found. Ending turn.");
             this.uiManager.displayMessage("No chain combinations possible. Turn ends with no points.");
-            this.endTurn();
+            this.endTurn(); // Ensure the turn ends properly
             return;
         }
         
         console.log(` Moving to CHAIN_SELECTION phase with ${this.potentialChains.length} potential chains.`);
         this.phase = 'CHAIN_SELECTION';
-        this.uiManager.displayMessage(`Select a chain to continue. ${this.potentialChains.length} possible chains.`);
+        this.uiManager.displayMessage(`Select a chain. ${this.potentialChains.length} possible chains.`);
         
         // Disable roll button, ensure selection is possible
         this.uiManager.rollButton.disabled = true;
         this.uiManager.rollButton.classList.add('hidden'); // Hide roll button during selection
-        this.uiManager.continueButton.classList.add('hidden');
-        this.uiManager.stopButton.classList.add('hidden');
 
         // Highlight ALL potential chains using the corrected data
         this.highlightPotentialChains(); // This function already has detailed logging
@@ -328,11 +468,9 @@ class GameManager {
 
         if (validChains.length === 0) {
             console.warn("No valid chains remain after final validation. This might indicate an issue upstream.");
-            // If no chains are truly valid, the turn should probably end.
-            // However, this situation implies a logic error earlier, so let's log and potentially end turn.
+            // If no chains are truly valid, the turn should properly end
             this.uiManager.displayMessage("Error: No valid chains found after final check. Ending turn.", "error");
-            // Consider ending the turn here if this state is reached
-            // this.endTurn(); 
+            this.endTurn(); // Ensure the turn ends properly
             return; 
         }
 
@@ -346,6 +484,18 @@ class GameManager {
     
     selectChain(value, diceIndices) {
         console.log(`--- Chain Selection Attempt --- Value: ${value}, Clicked Dice Indices (may be partial): ${JSON.stringify(diceIndices)}`);
+        
+        // Check if we already have a chain set aside in this turn
+        const existingSetAsideDice = this.currentRoll.filter(die => die.setAside);
+        if (existingSetAsideDice.length > 0) {
+            console.log(`   Cannot select new chain: Already have ${existingSetAsideDice.length} dice set aside with value ${this.chainNumber}`);
+            this.uiManager.displayMessage(`You've already selected a chain with value ${this.chainNumber}. Continue rolling or stop to score.`, "warning");
+            
+            // Move to decision phase with the existing chain
+            this.phase = 'DECISION';
+            this.uiManager.showTurnChoiceButtons(true);
+            return;
+        }
         
         // CRITICAL: Find ALL active dice with the selected value, regardless of what was clicked
         const allMatchingDice = this.currentRoll
@@ -370,6 +520,9 @@ class GameManager {
         // Set aside ALL the dice in the confirmed chain
         this.diceController.setDiceAside(this.chainDice);
         
+        // Ensure all chain dice have consistent highlighting
+        this.diceController.highlightAllChainDice(this.chainDice);
+        
         // Calculate score for this specific chain segment
         const chainScore = this.chainNumber * this.chainDice.length;
         
@@ -382,20 +535,22 @@ class GameManager {
         this.phase = 'DECISION';
         console.log("   Moving to DECISION phase.");
         
-        // Explicitly set button states for DECISION phase
-        this.uiManager.rollButton.classList.add('hidden'); 
-        this.uiManager.continueButton.classList.remove('hidden');
-        this.uiManager.continueButton.disabled = false;
-        this.uiManager.stopButton.classList.remove('hidden');
-        this.uiManager.stopButton.disabled = false;
+        // Now rely *only* on the UIManager method, which uses .hidden class
+        console.log("BUTTONS DEBUG - Before calling showTurnChoiceButtons:");
+        console.log("   - Roll button hidden:", this.uiManager.rollButton.classList.contains('hidden'));
+        console.log("   - Continue button hidden:", this.uiManager.continueButton.classList.contains('hidden'));
+        console.log("   - Stop button hidden:", this.uiManager.stopButton.classList.contains('hidden'));
+
+        this.uiManager.showTurnChoiceButtons(true); 
+
+        console.log("BUTTONS DEBUG - After calling showTurnChoiceButtons:");
+        console.log("   - Roll button hidden:", this.uiManager.rollButton.classList.contains('hidden'));
+        console.log("   - Continue button hidden:", this.uiManager.continueButton.classList.contains('hidden'));
+        console.log("   - Stop button hidden:", this.uiManager.stopButton.classList.contains('hidden'));
         
-        // Show enhancement buttons if available
-        this.uiManager.showEnhancementButtons(this.getCurrentPlayer().enhancementsAvailable()); 
-        
-        console.log("   Button states set for DECISION phase.");
-        console.log("--- Chain Selection Complete ---");
+        console.log("   Buttons set: Continue and Stop buttons shown, Roll button hidden");
     }
-    
+
     handleRadiationLeak() {
         this.phase = 'RADIATION_LEAK_PENDING';
         this.radiationLeakValue = null;
@@ -434,6 +589,7 @@ class GameManager {
         this.chainNumber = null;
         this.chainDice = [];
         this.potentialChains = [];
+        this.newPotentialChain = null;
         this.radiationLeakValue = null;
         this.enhancementUsedThisTurn = false;
         this.waitingForEnrichmentTarget = false;
@@ -850,6 +1006,108 @@ class GameManager {
                 fusionButton.disabled = currentPlayer.enhancementsUsed.includes('fusion') || !this.isPlayerTurn;
             }
         }
+    }
+
+    // Add methods to handle chain switch decisions
+    handleKeepChainDecision() {
+        console.log("--- Handling Keep Chain Decision ---");
+        console.log(`   Keeping current chain: ${this.chainDice.length}x${this.chainNumber}`);
+        
+        // Player decided to keep their current chain
+        // Clear the new potential chain
+        this.newPotentialChain = null;
+        
+        // Remove the chain switch buttons
+        this.uiManager.removeChainSwitchButtons();
+        
+        // Use AssessDiceRoll to properly identify any matching dice for the existing chain
+        const allDiceValuesArray = this.currentRoll.map(die => die.value);
+        console.log(`   All dice values for post-switch assessment: ${allDiceValuesArray}`);
+        
+        const assessmentResult = AssessDiceRoll(allDiceValuesArray);
+        console.log(`   AssessDiceRoll result after keep decision: ${JSON.stringify(assessmentResult)}`);
+        
+        // Find which chain (if any) matches our current chain value
+        let chainId = 0; // 0=none, 1=Chain1, 2=Chain2
+        if (assessmentResult.Chain1Number === this.chainNumber) {
+            chainId = 1;
+        } else if (assessmentResult.Chain2Number === this.chainNumber) {
+            chainId = 2;
+        }
+        
+        console.log(`   Chain with value ${this.chainNumber} has chainId: ${chainId}`);
+        
+        if (chainId > 0) {
+            // Find dice that are part of this chain but not yet set aside
+            const matchingDice = [];
+            
+            for (let i = 0; i < 5; i++) {
+                // Check if this die belongs to our chain based on AssessDiceRoll
+                if (assessmentResult[`Die${i+1}`] === chainId) {
+                    const die = this.currentRoll[i];
+                    if (!die.setAside) {
+                        matchingDice.push(die.index);
+                    }
+                }
+            }
+            
+            if (matchingDice.length > 0) {
+                // Process as a chain extension
+                console.log(`   Found ${matchingDice.length} dice matching the current chain after assessment`);
+                this.chainDice = [...this.chainDice, ...matchingDice];
+                this.diceController.setDiceAside(matchingDice);
+            }
+        }
+        
+        // Ensure all chain dice have consistent highlighting
+        this.diceController.highlightAllChainDice(this.chainDice);
+        
+        // Calculate score for chain
+        const chainScore = this.chainNumber * this.chainDice.length;
+        this.uiManager.updateChainInfo(this.chainDice.length, chainScore);
+        
+        // Move to decision phase to let player decide to continue or stop
+        this.phase = 'DECISION';
+        this.uiManager.showTurnChoiceButtons(true);
+        this.uiManager.displayMessage(`Keeping your chain of ${this.chainDice.length} ${this.chainNumber}s. Continue or Stop?`);
+    }
+    
+    handleSwitchChainDecision() {
+        console.log("--- Handling Switch Chain Decision ---");
+        console.log(`   Switching from chain ${this.chainDice.length}x${this.chainNumber} to new chain ${this.newPotentialChain.count}x${this.newPotentialChain.value}`);
+        
+        // Player decided to switch to the new chain
+        
+        // First, reset all dice to normal state (un-set-aside)
+        this.diceController.resetDice();
+        
+        // Update chain values
+        const oldChainNumber = this.chainNumber;
+        const oldChainLength = this.chainDice.length;
+        
+        this.chainNumber = this.newPotentialChain.value;
+        this.chainDice = [...this.newPotentialChain.diceIndices];
+        
+        // Set aside the dice in the new chain
+        this.diceController.setDiceAside(this.chainDice);
+        
+        // Ensure all chain dice have consistent highlighting
+        this.diceController.highlightAllChainDice(this.chainDice);
+        
+        // Calculate score for new chain
+        const chainScore = this.chainNumber * this.chainDice.length;
+        this.uiManager.updateChainInfo(this.chainDice.length, chainScore);
+        
+        // Remove the chain switch buttons
+        this.uiManager.removeChainSwitchButtons();
+        
+        // Clear the new potential chain
+        this.newPotentialChain = null;
+        
+        // Move to decision phase to let player decide to continue or stop
+        this.phase = 'DECISION';
+        this.uiManager.showTurnChoiceButtons(true);
+        this.uiManager.displayMessage(`Switched from ${oldChainLength}x${oldChainNumber} to ${this.chainDice.length}x${this.chainNumber}. Continue or Stop?`);
     }
 }
 

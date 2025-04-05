@@ -112,27 +112,81 @@ class UIManager {
     clearChainInfo() {
         this.chainInfo.textContent = '';
     }
+    
+    clearMessages() {
+        console.log("UIManager: Clearing all message areas.");
+        this.gameMessage.textContent = '';
+        this.turnInfo.textContent = '';
+        this.chainInfo.textContent = '';
+        this.gameMessage.classList.remove('error-message'); // Remove error styling too
+    }
 
-    // Button Control Methods
+    // Button Control Methods - Simplified to use only .hidden class
     showRollButton(enabled = true) {
-        this.rollButton.classList.remove('hidden');
+        this.rollButton.classList.toggle('hidden', !enabled);
         this.rollButton.disabled = !enabled;
-        this.continueButton.classList.add('hidden');
-        this.stopButton.classList.add('hidden');
     }
     
     showTurnChoiceButtons(enabled = true) {
-        this.rollButton.classList.add('hidden');
-        this.continueButton.classList.remove('hidden');
-        this.continueButton.disabled = !enabled;
-        this.stopButton.classList.remove('hidden');
-        this.stopButton.disabled = !enabled;
+        this.continueButton.classList.toggle('hidden', !enabled);
+        this.stopButton.classList.toggle('hidden', !enabled);
+        this.rollButton.classList.add('hidden'); // Always hide roll when showing continue/stop
     }
     
     hideAllButtons() {
         this.rollButton.classList.add('hidden');
         this.continueButton.classList.add('hidden');
         this.stopButton.classList.add('hidden');
+        this.showEnhancementButtons(false);
+    }
+    
+    // Keep showContinueButton and showStopButton simple if needed for specific cases,
+    // but primarily rely on showRollButton and showTurnChoiceButtons
+    showContinueButton(enabled = true) {
+        this.continueButton.classList.toggle('hidden', !enabled);
+    }
+    
+    showStopButton(enabled = true) {
+        this.stopButton.classList.toggle('hidden', !enabled);
+    }
+    
+    // Add new method for chain switching buttons
+    showChainSwitchButtons(currentChainValue, newChainValue, currentChainLength, newChainLength) {
+        // Hide standard buttons
+        this.hideAllButtons();
+        
+        // Create switch chain buttons dynamically
+        const controlsArea = document.getElementById('controls-area');
+        
+        // Remove any existing chain switch buttons
+        const existingSwitchButtons = document.querySelectorAll('.chain-switch-button');
+        existingSwitchButtons.forEach(button => button.remove());
+        
+        // Calculate scores for both chains
+        const currentChainScore = currentChainValue * currentChainLength;
+        const newChainScore = newChainValue * newChainLength;
+        
+        // Create Keep Current Chain button
+        const keepButton = document.createElement('button');
+        keepButton.textContent = `Keep Chain: ${currentChainLength}x${currentChainValue} (${currentChainScore} pts)`;
+        keepButton.classList.add('chain-switch-button', 'keep-chain-button');
+        keepButton.id = 'keep-chain-button';
+        controlsArea.appendChild(keepButton);
+        
+        // Create Switch to New Chain button
+        const switchButton = document.createElement('button');
+        switchButton.textContent = `Switch Chain: ${newChainLength}x${newChainValue} (${newChainScore} pts)`;
+        switchButton.classList.add('chain-switch-button', 'switch-chain-button');
+        switchButton.id = 'switch-chain-button';
+        controlsArea.appendChild(switchButton);
+        
+        return { keepButton, switchButton };
+    }
+    
+    // Remove chain switching buttons
+    removeChainSwitchButtons() {
+        const switchButtons = document.querySelectorAll('.chain-switch-button');
+        switchButtons.forEach(button => button.remove());
     }
     
     showEnhancementButtons(show = true) {
