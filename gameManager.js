@@ -281,8 +281,86 @@ class GameManager {
                     return;
                 }
             }
-            
-            // At this point, we have a chain but no matching dice and no new chains were found,
+
+            // At this point, no matching dice were found for the current chain
+            // Before declaring MELTDOWN, check if there's a NEW potential chain to switch to
+            console.log(" No matching dice for current chain. Checking for new potential chains...");
+
+            // Check if there are any NEW chains (different value) in the active dice
+            // Look through the assessment result for other chains
+            const newPotentialChains = [];
+
+            // Check Chain1 if it exists and is different from current chain
+            if (assessmentResult.Chain1Size >= 2 && assessmentResult.Chain1Number !== this.chainNumber) {
+                const chain1DiceIndices = [];
+                for (let i = 0; i < 5; i++) {
+                    if (assessmentResult[`Die${i+1}`] === 1) {
+                        const die = this.currentRoll[i];
+                        if (!die.setAside) {
+                            chain1DiceIndices.push(die.index);
+                        }
+                    }
+                }
+                if (chain1DiceIndices.length >= 2) {
+                    newPotentialChains.push({
+                        value: assessmentResult.Chain1Number,
+                        count: chain1DiceIndices.length,
+                        diceIndices: chain1DiceIndices
+                    });
+                    console.log(` Found new potential Chain1: Value=${assessmentResult.Chain1Number}, Count=${chain1DiceIndices.length}`);
+                }
+            }
+
+            // Check Chain2 if it exists and is different from current chain
+            if (assessmentResult.Chain2Size >= 2 && assessmentResult.Chain2Number !== this.chainNumber) {
+                const chain2DiceIndices = [];
+                for (let i = 0; i < 5; i++) {
+                    if (assessmentResult[`Die${i+1}`] === 2) {
+                        const die = this.currentRoll[i];
+                        if (!die.setAside) {
+                            chain2DiceIndices.push(die.index);
+                        }
+                    }
+                }
+                if (chain2DiceIndices.length >= 2) {
+                    newPotentialChains.push({
+                        value: assessmentResult.Chain2Number,
+                        count: chain2DiceIndices.length,
+                        diceIndices: chain2DiceIndices
+                    });
+                    console.log(` Found new potential Chain2: Value=${assessmentResult.Chain2Number}, Count=${chain2DiceIndices.length}`);
+                }
+            }
+
+            // If a new potential chain exists, offer SWITCH/KEEP choice
+            if (newPotentialChains.length > 0) {
+                console.log(` Found ${newPotentialChains.length} new potential chain(s). Offering SWITCH/KEEP choice.`);
+
+                // Use the first (or best) new potential chain
+                this.newPotentialChain = newPotentialChains[0];
+
+                // Move to chain switch decision phase
+                this.phase = 'CHAIN_SWITCH_DECISION';
+
+                // Display the chain switch UI
+                const { keepButton, switchButton } = this.uiManager.showChainSwitchButtons(
+                    this.chainNumber,
+                    this.newPotentialChain.value,
+                    this.chainDice.length,
+                    this.newPotentialChain.count
+                );
+
+                // Attach event listeners to the buttons
+                keepButton.addEventListener('click', () => this.handleKeepChainDecision());
+                switchButton.addEventListener('click', () => this.handleSwitchChainDecision());
+
+                // Display informative message
+                this.uiManager.displayMessage(`New chain available! Keep your current chain or switch to the new one?`);
+
+                return; // Wait for player decision
+            }
+
+            // No matching dice AND no new chains were found - this is a MELTDOWN
             console.log(" No matching dice and no new chains - this is a MELTDOWN!");
             this.uiManager.displayMessage("MELTDOWN! No matching dice for your chain and no new chains. Your turn ends with 0 points.", "error");
             this.endTurn();
@@ -426,10 +504,9 @@ class GameManager {
         console.log(` Moving to CHAIN_SELECTION phase with ${this.potentialChains.length} potential chains.`);
         this.phase = 'CHAIN_SELECTION';
         this.uiManager.displayMessage(`Select a chain. ${this.potentialChains.length} possible chains.`);
-        
-        // Disable roll button, ensure selection is possible
-        this.uiManager.rollButton.disabled = true;
-        this.uiManager.rollButton.classList.add('hidden'); // Hide roll button during selection
+
+        // Hide roll button during chain selection
+        this.uiManager.showRollButton(false);
 
         // Highlight ALL potential chains using the corrected data
         this.highlightPotentialChains(); // This function already has detailed logging
