@@ -260,24 +260,32 @@ class GameManager {
                 
                 if (matchingNewDice.length > 0) {
                     console.log(" Extending existing chain with", matchingNewDice.length, "additional dice");
-                    
-                    // Add these dice to the existing chain
+
                     this.chainDice = [...this.chainDice, ...matchingNewDice];
-                    
-                    // Set these dice aside
                     this.diceController.setDiceAside(matchingNewDice);
-                    
-                    // Highlight all dice in the chain with the same color
                     this.diceController.highlightAllChainDice(this.chainDice);
-                    
-                    // Update UI to reflect the extended chain
+
                     const chainScore = this.chainNumber * this.chainDice.length;
                     this.uiManager.updateChainInfo(this.chainDice.length, chainScore);
-                    this.uiManager.displayMessage(`Chain extended! ${matchingNewDice.length} additional dice added to your chain of ${this.chainNumber}s (now ${this.chainDice.length} total). Continue or Stop?`, true);
-                    
-                    // Move to decision phase to let player decide to continue or stop
+
+                    // Chain reached 5 dice — Critical Mass, auto-score and end turn.
+                    if (this.chainDice.length === 5) {
+                        this.uiManager.displayMessage(
+                            `CRITICAL MASS! All 5 dice are ${this.chainNumber}s — scoring ${chainScore} points.`,
+                            true
+                        );
+                        this.scoreChain();
+                        this.endTurn();
+                        return;
+                    }
+
+                    this.uiManager.displayMessage(
+                        `Chain extended! ${matchingNewDice.length} new ${this.chainNumber}${matchingNewDice.length > 1 ? 's' : ''} added (chain now ${this.chainDice.length}). Continue or Stop?`,
+                        true
+                    );
                     this.phase = 'DECISION';
                     this.uiManager.showTurnChoiceButtons(true);
+                    this.uiManager.refreshEnhancementButtons(this);
                     return;
                 }
             }
@@ -390,50 +398,29 @@ class GameManager {
         const assessmentResult = AssessDiceRoll(allDiceValuesArray);
         console.log(" AssessDiceRoll Result:", JSON.stringify(assessmentResult));
 
-        // Group active dice by value - keeping this for compatibility with existing code 
-        // and because it's useful for additional logic
-        console.log(" Grouping Active Dice by Value...");
-        const diceByValue = activeDice.reduce((acc, die) => {
-            console.log(`  Processing Die Index ${die.index}, Value: ${die.value}, SetAside: ${die.setAside}`);
-            const valueKey = die.value.toString(); // Ensure using string keys
-            if (!acc[valueKey]) {
-                acc[valueKey] = [];
-                console.log(`   Created group for value ${valueKey}`);
-            }
-            acc[valueKey].push(die);
-            console.log(`   Added Die ${die.index} to group ${valueKey}`);
-            return acc;
-        }, {});
-        console.log(" Dice Grouped by Value (Final):", JSON.stringify(diceByValue));
-
-        // Check for critical mass (3 or more identical dice AFTER a roll)
-        console.log(" Checking for Critical Mass...");
-        const criticalMassValues = Object.entries(diceByValue)
-            .filter(([value, dice]) => dice.length >= 3)
-            .map(([value]) => parseInt(value));
-        console.log(" Critical Mass Values Found:", criticalMassValues);
-
-        if (criticalMassValues.length > 0) {
-            console.log(" Critical Mass Detected! Values:", criticalMassValues);
-            this.uiManager.displayMessage("Critical Mass! Re-rolling matching dice...", true);
-            
-            let criticalDiceIndices = [];
-            criticalMassValues.forEach(value => {
-                // Ensure we get the indices from the original grouped object
-                const diceWithThisValue = diceByValue[value.toString()].map(die => die.index);
-                criticalDiceIndices.push(...diceWithThisValue);
-                console.log(`   - Adding dice for critical mass value ${value}:`, diceWithThisValue);
-            });
-            
-            console.log(" Indices to re-roll for critical mass:", criticalDiceIndices);
-            this.diceController.rollDice(criticalDiceIndices).then(() => {
-                console.log(" Re-rolling completed, calling afterRoll again.");
-                this.afterRoll(); 
-            });
-            return; // Stop further processing for this roll
+        // Critical Mass (five of a kind on the opening roll): score the
+        // 5-chain immediately, then per the build-instruction clarification
+        // the player may start a fresh chain attempt in the same turn.
+        if (assessmentResult.Chain1Size === 5) {
+            const value = assessmentResult.Chain1Number;
+            this.chainNumber = value;
+            this.chainDice = activeDice.map(d => d.index);
+            const bankedPoints = value * 5;
+            this.getCurrentPlayer().addScore(bankedPoints);
+            this.uiManager.updateScore(this.getCurrentPlayer().id, this.getCurrentPlayer().score);
+            this.uiManager.displayMessage(`CRITICAL MASS! Five ${value}s scored ${bankedPoints} points. Rolling again...`, true);
+            console.log(` Critical Mass: banked ${bankedPoints}, re-rolling all 5 dice.`);
+            // Reset chain for the new attempt inside the same turn.
+            this.chainNumber = null;
+            this.chainDice = [];
+            this.potentialChains = [];
+            this.diceController.resetDice();
+            this.phase = 'ROLL';
+            this.diceController.rollDice().then(() => this.afterRoll());
+            return;
         }
 
-        // --- Chain Detection using AssessDiceRoll --- 
+        // --- Chain Detection using AssessDiceRoll ---
         this.potentialChains = [];
         console.log("--- Starting Chain Detection from AssessDiceRoll Results ---");
         
@@ -484,32 +471,47 @@ class GameManager {
         console.log("--- Finished Chain Detection ---");
         console.log(" Final Potential Chains Array:", JSON.stringify(this.potentialChains));
 
-        // Check for radiation leak (all 5 dice different values, none set aside)
+        // Radiation Leak: opening roll with all 5 dice showing different
+        // values. Per rules, the player loses 10 points and the turn ends.
         if (assessmentResult.ChainCount === 0 && activeDice.length === 5) {
             console.log(" Radiation Leak Detected (All 5 dice have different values)!");
-            this.uiManager.displayMessage("Radiation Leak! All 6s will be set aside in future rolls.", true);
-            this.radiationLeakValue = 6; // Mark 6s for future removal
+            const player = this.getCurrentPlayer();
+            const beforeScore = player.score;
+            player.addScore(-10); // Player.addScore floors the score at 0.
+            const delta = player.score - beforeScore;
+            this.uiManager.updateScore(player.id, player.score);
+            this.uiManager.displayMessage(
+                `Radiation Leak! No matching dice. ${player.name} loses ${-delta} points.`,
+                true
+            );
             this.endTurn();
             return;
         }
 
-        // --- Handle Game Flow based on Chains --- 
+        // --- Handle Game Flow based on Chains ---
         if (this.potentialChains.length === 0) {
             console.log(" No potential chains found. Ending turn.");
             this.uiManager.displayMessage("No chain combinations possible. Turn ends with no points.");
-            this.endTurn(); // Ensure the turn ends properly
+            this.endTurn();
             return;
         }
-        
+
+        // If there's exactly one potential chain, auto-select it so the
+        // player doesn't have to click through an obvious choice.
+        if (this.potentialChains.length === 1) {
+            const only = this.potentialChains[0];
+            console.log(` Auto-selecting only potential chain: ${only.count}x${only.value}`);
+            this.phase = 'CHAIN_SELECTION'; // selectChain expects we're in selection-ish state
+            this.uiManager.showRollButton(false);
+            this.selectChain(only.value, only.diceIndices);
+            return;
+        }
+
         console.log(` Moving to CHAIN_SELECTION phase with ${this.potentialChains.length} potential chains.`);
         this.phase = 'CHAIN_SELECTION';
         this.uiManager.displayMessage(`Select a chain. ${this.potentialChains.length} possible chains.`);
-
-        // Hide roll button during chain selection
         this.uiManager.showRollButton(false);
-
-        // Highlight ALL potential chains using the corrected data
-        this.highlightPotentialChains(); // This function already has detailed logging
+        this.highlightPotentialChains();
         console.log("--- Exiting afterRoll (Proceeding to Highlight) ---");
     }
     
@@ -571,6 +573,7 @@ class GameManager {
             // Move to decision phase with the existing chain
             this.phase = 'DECISION';
             this.uiManager.showTurnChoiceButtons(true);
+            this.uiManager.refreshEnhancementButtons(this);
             return;
         }
         
@@ -618,7 +621,8 @@ class GameManager {
         console.log("   - Continue button hidden:", this.uiManager.continueButton.classList.contains('hidden'));
         console.log("   - Stop button hidden:", this.uiManager.stopButton.classList.contains('hidden'));
 
-        this.uiManager.showTurnChoiceButtons(true); 
+        this.uiManager.showTurnChoiceButtons(true);
+        this.uiManager.refreshEnhancementButtons(this);
 
         console.log("BUTTONS DEBUG - After calling showTurnChoiceButtons:");
         console.log("   - Roll button hidden:", this.uiManager.rollButton.classList.contains('hidden'));
@@ -628,40 +632,22 @@ class GameManager {
         console.log("   Buttons set: Continue and Stop buttons shown, Roll button hidden");
     }
 
-    handleRadiationLeak() {
-        this.phase = 'RADIATION_LEAK_PENDING';
-        this.radiationLeakValue = null;
-        
-        this.uiManager.displayMessage("Radiation Leak! Choose a die value to set aside all matching dice in future rolls this turn.", true);
-        
-        // Let the player choose a value 1-6
-        // For simplicity in this demo, we'll automatically choose value 6
-        this.radiationLeakValue = 6;
-        this.uiManager.displayMessage(`Radiation Leak: All ${this.radiationLeakValue}s will be set aside in future rolls.`);
-        
-        // Continue with turn
-        this.phase = 'ROLL';
-        this.uiManager.showRollButton(true);
-    }
-    
     scoreChain() {
         if (!this.chainNumber || this.chainDice.length === 0) return;
-        
+
         const score = this.chainNumber * this.chainDice.length;
         const player = this.getCurrentPlayer();
-        
         player.addScore(score);
         this.uiManager.updateScore(player.id, player.score);
         this.uiManager.displayMessage(`${player.name} scores ${score} points!`);
-        
-        // Check for win condition
-        if (player.score >= TARGET_SCORE) {
-            this.checkForWinner();
-        }
     }
-    
+
     endTurn() {
-        // Reset game state for next turn
+        // Remember who just finished so we can evaluate end-game against them,
+        // not the next player.
+        const justFinished = this.getCurrentPlayer();
+
+        // Reset per-turn state.
         this.diceController.resetDice();
         this.chainNumber = null;
         this.chainDice = [];
@@ -670,85 +656,50 @@ class GameManager {
         this.radiationLeakValue = null;
         this.enhancementUsedThisTurn = false;
         this.waitingForEnrichmentTarget = false;
-        
-        // Move to next player
+        this.uiManager.removeChainSwitchButtons();
+        this.uiManager.showEnhancementButtons(false);
+        this.uiManager.hideEnhancementPrompt();
+
+        // Trigger end-game if this player reached the target score.
+        if (!this.endGameTriggered && justFinished.score >= TARGET_SCORE) {
+            this.endGameTriggered = true;
+            this.playerWhoTriggeredEnd = justFinished.id;
+            justFinished.finalTurnTaken = true;
+            this.uiManager.displayMessage(
+                `${justFinished.name} reached ${TARGET_SCORE}! Everyone else gets one last turn.`,
+                true
+            );
+            console.log(`End-game triggered by ${justFinished.name}.`);
+        } else if (this.endGameTriggered) {
+            // Any player who finishes a turn after end-game is triggered
+            // has taken their final turn.
+            justFinished.finalTurnTaken = true;
+        }
+
+        // If everyone has taken their final turn, wrap the game up.
+        if (this.endGameTriggered && this.players.every(p => p.finalTurnTaken)) {
+            this.determineWinner();
+            return;
+        }
+
+        // Advance to next player.
         this.currentPlayerIndex = (this.currentPlayerIndex + 1) % this.playerCount;
         this.turnNumber++;
-        
-        // Update UI for next turn
-        this.uiManager.highlightActivePlayer(this.getCurrentPlayer().id);
-        this.uiManager.clearChainInfo();
-        this.phase = 'ROLL';
-        this.uiManager.showRollButton(true);
-        this.uiManager.displayMessage(`${this.getCurrentPlayer().name}'s turn to roll the dice!`);
-        
-        // Check if we've completed a round
         if (this.currentPlayerIndex === 0) {
             this.gameRound++;
             console.log(`Starting Round ${this.gameRound}`);
         }
-        
-        // Check win condition *after* the turn is fully resolved
-        if (!this.checkForWinner()) {
-            // If game not over, proceed to next player
+
+        const next = this.getCurrentPlayer();
+        this.uiManager.highlightActivePlayer(next.id);
+        this.uiManager.clearChainInfo();
+        this.phase = 'ROLL';
+        this.uiManager.showRollButton(true);
+        if (this.endGameTriggered && !next.finalTurnTaken) {
+            this.uiManager.displayMessage(`${next.name}'s FINAL turn — roll the dice!`);
+        } else {
+            this.uiManager.displayMessage(`${next.name}'s turn to roll the dice!`);
         }
-    }
-    
-    checkForWinner() {
-        const player = this.getCurrentPlayer(); // The player who just finished their turn
-
-        if (this.endGameTriggered) {
-            // End game was already triggered, this player just finished their final turn
-            player.finalTurnTaken = true;
-            console.log(`${player.name} completed their final turn.`);
-
-            // Check if all players have now taken their final turn
-            const allTurnsTaken = this.players.every(p => p.finalTurnTaken);
-            if (allTurnsTaken) {
-                console.log("All players have completed their final turns.");
-                this.determineWinner();
-                return true; // Game ends now
-            } else {
-                // Continue to the next player who hasn't had their final turn
-                console.log("Waiting for other players to finish final turns.");
-                return false;
-            }
-        }
-
-        let someoneReachedTarget = this.players.some(p => p.score >= TARGET_SCORE);
-
-        if (someoneReachedTarget && !this.endGameTriggered) {
-            // First time someone reached the target this game
-            this.endGameTriggered = true;
-            this.playerWhoTriggeredEnd = player.id;
-            player.finalTurnTaken = true; // Mark the current player's turn as their final one
-            this.uiManager.displayMessage(`${player.name} reached ${TARGET_SCORE}! Final round for others!`, "info");
-            console.log(`Game end triggered by ${player.name} in round ${this.gameRound}.`);
-
-            // Check if all other players have already had a turn in this round
-            const firstPlayerIndex = (this.playerWhoTriggeredEnd + 1) % this.playerCount; // Player who should start next round normally
-            if (this.currentPlayerIndex === (firstPlayerIndex - 1 + this.playerCount) % this.playerCount) {
-                console.log("Target reached on the last player's turn of the round. Determining winner now.");
-                this.determineWinner();
-                return true; // Game ends immediately
-            } else {
-                console.log("Allowing remaining players in the round a final turn.");
-                // Mark players who already played this round as having taken their final turn
-                let checkIndex = (this.playerWhoTriggeredEnd + 1) % this.playerCount;
-                while(checkIndex !== (this.currentPlayerIndex + 1) % this.playerCount) {
-                    if(!this.players[checkIndex].finalTurnTaken) {
-                        // Player still needs their turn
-                        console.log(`Player ${this.players[checkIndex].name} needs final turn.`);
-                    }
-                    checkIndex = (checkIndex + 1) % this.playerCount;
-                }
-
-                // Game continues to the next player for their final turn
-                return false;
-            }
-        }
-
-        return false;
     }
 
     determineWinner() {
@@ -815,84 +766,68 @@ class GameManager {
 
     // --- Enhancement Application Callbacks (Called by EnhancementController) ---
     applyEnrichment(targetDie) {
-        const chainNum = this.chainNumber;
-        if (!chainNum) {
-            // Handle case where Enrichment is used on Radiation Leak
-            const counts = this.countDiceValues(this.currentRoll);
-            const mostFrequent = Object.entries(counts).sort(([,a],[,b]) => b-a)[0];
-            const targetValue = parseInt(mostFrequent[0], 10); // Pick one value to make a pair
-            this.diceController.changeDieValue(targetDie, targetValue);
-            // Re-evaluate the initial roll *with the changed die*
-            const updatedResults = this.diceController.getDiceValues(); // Get fresh values including the changed one
-            this.afterRoll(); // Re-process the roll
-
-        } else {
-            // Standard case: add to existing chain
-            this.diceController.changeDieValue(targetDie, chainNum);
-            this.chainDice.push(targetDie); // Add the changed die to the chain
-            this.diceController.setDiceAside(this.chainDice); // Update visuals
-            this.uiManager.updateChainInfo(chainNum, this.chainDice.length);
-            // Re-evaluate the outcome of the roll (did it prevent meltdown, or just add a die?)
-            // Check if the original roll WAS a meltdown
-            const originalMatchingDiceCount = this.currentRoll
-                .filter(r => r.die !== targetDie) // Exclude the changed die from original check
-                .filter(r => r.value === chainNum).length;
-
-            if (originalMatchingDiceCount === 0) { // Enrichment prevented a meltdown
-                this.uiManager.displayMessage("Enrichment prevented Meltdown!", "success");
-                // Now decide next step (all dice in chain? -> score/end, else -> DECISION)
-                if (this.chainDice.length === 5) {
-                    this.scoreChain();
-                    this.endTurn();
-                } else {
-                    this.phase = 'DECISION';
-                    this.uiManager.updateTurnInfo(this.getCurrentPlayer().name, this.phase);
-                    this.uiManager.enableDecisionButtons();
-                    this.uiManager.updateEnhancementButtons(this.getCurrentPlayer(), this.phase); // Update buttons state
-                }
-            } else { // Enrichment just added another die
-                this.uiManager.displayMessage("Enrichment added a die!", "info");
-                // Already added to chain, just ensure state is correct
-                if (this.chainDice.length === 5) {
-                    this.scoreChain();
-                    this.endTurn();
-                } else {
-                    this.phase = 'DECISION';
-                    this.uiManager.updateTurnInfo(this.getCurrentPlayer().name, this.phase);
-                    this.uiManager.enableDecisionButtons();
-                    this.uiManager.updateEnhancementButtons(this.getCurrentPlayer(), this.phase);
-                }
-            }
-        }
+        const targetIndex = targetDie.userData.id;
         this.enhancementUsedThisTurn = true;
-        this.uiManager.updateEnhancementButtons(this.getCurrentPlayer(), this.phase); // Disable others
+
+        if (!this.chainNumber) {
+            // No chain yet (used to break a Radiation Leak). Pair the
+            // changed die with whichever active value is most common.
+            const active = this.currentRoll.filter(d => !d.setAside && d.index !== targetIndex);
+            const counts = this.countDiceValues(active);
+            const sorted = Object.entries(counts).sort(([, a], [, b]) => b - a);
+            const pairValue = sorted.length ? parseInt(sorted[0][0], 10) : active[0]?.value || 1;
+            this.diceController.setDieValue(targetIndex, pairValue);
+            const entry = this.currentRoll.find(d => d.index === targetIndex);
+            if (entry) entry.value = pairValue;
+            this.uiManager.displayMessage(`Enrichment: die changed to ${pairValue}.`);
+            this.afterRoll();
+            return;
+        }
+
+        // Chain exists: convert the die to the chain number and add it.
+        this.diceController.setDieValue(targetIndex, this.chainNumber);
+        const entry = this.currentRoll.find(d => d.index === targetIndex);
+        if (entry) entry.value = this.chainNumber;
+        if (!this.chainDice.includes(targetIndex)) this.chainDice.push(targetIndex);
+        this.diceController.setDiceAside([targetIndex]);
+        this.diceController.highlightAllChainDice(this.chainDice);
+        this.uiManager.updateChainInfo(this.chainDice.length, this.chainNumber * this.chainDice.length);
+        this.uiManager.displayMessage(`Enrichment: die added to your ${this.chainNumber}s.`);
+
+        if (this.chainDice.length === 5) {
+            this.scoreChain();
+            this.endTurn();
+            return;
+        }
+        this.phase = 'DECISION';
+        this.uiManager.showTurnChoiceButtons(true);
+        this.uiManager.refreshEnhancementButtons(this);
     }
 
     applyControlRod() {
-        this.uiManager.displayMessage("Control Rod used! Emergency Shutdown initiated.", "success");
-        // Score the chain as it was *before* the meltdown roll
-        this.scoreChain();
-        this.enhancementUsedThisTurn = true; // Mark as used for this "roll resolution"
-        this.endTurn(); // Control rod always ends the turn
+        this.enhancementUsedThisTurn = true;
+        if (this.chainNumber && this.chainDice.length >= 2) {
+            this.uiManager.displayMessage("Control Rod: emergency shutdown — banking your chain.", true);
+            this.scoreChain();
+        } else {
+            this.uiManager.displayMessage("Control Rod used — but no chain to save.", true);
+        }
+        this.endTurn();
     }
 
-    applyFusion(newSetNumber, newSetDice) {
+    applyFusion(newSetNumber, newSetDiceIndices) {
+        this.enhancementUsedThisTurn = true;
         const player = this.getCurrentPlayer();
-        // Score original chain
-        const originalScore = this.chainNumber * this.chainDice.length;
-        // Score new set
-        const fusionScore = newSetNumber * newSetDice.length;
+        const originalScore = (this.chainNumber || 0) * this.chainDice.length;
+        const fusionScore = newSetNumber * newSetDiceIndices.length;
         const totalScore = originalScore + fusionScore;
-
         player.addScore(totalScore);
         this.uiManager.updateScore(player.id, player.score);
-        this.uiManager.displayMessage(`Fusion! Scored ${originalScore} + ${fusionScore} = ${totalScore} points!`, "success");
-
-        // Visually highlight both sets briefly?
-        this.diceController.setDiceAside([...this.chainDice, ...newSetDice]);
-
-        this.enhancementUsedThisTurn = true;
-        this.endTurn(); // Fusion always ends the turn
+        this.uiManager.displayMessage(
+            `Fusion! ${originalScore} + ${fusionScore} = ${totalScore} points.`, true
+        );
+        this.diceController.setDiceAside([...this.chainDice, ...newSetDiceIndices]);
+        this.endTurn();
     }
 
     // --- Utility & Checks ---
@@ -942,14 +877,16 @@ class GameManager {
         return this.waitingForEnrichmentTarget;
     }
 
-    setWaitingForEnrichmentTarget(isWaiting, selectableDice) {
+    setWaitingForEnrichmentTarget(isWaiting, selectableDice = []) {
         this.waitingForEnrichmentTarget = isWaiting;
         if (isWaiting) {
-            this.diceController.highlightSelectableDiceForEnrichment(selectableDice);
-            this.uiManager.displayMessage("Click a non-matching die to change it to your chain number.", "info", true); // true = make prompt prominent
+            const indices = selectableDice.map(d =>
+                typeof d === 'number' ? d : d.userData.id
+            );
+            this.diceController.highlightSelectableDiceForEnrichment(indices);
         } else {
-            this.diceController.clearDiceHighlights(); // Clear enrichment highlights
-            this.uiManager.clearEnhancementPrompt();
+            this.diceController.resetEnrichmentHighlights();
+            this.uiManager.hideEnhancementPrompt();
         }
     }
 
@@ -959,130 +896,6 @@ class GameManager {
             counts[result.value] = (counts[result.value] || 0) + 1;
         }
         return counts;
-    }
-
-    updateScoreboard() {
-        const thead = document.querySelector('#scoreboard thead');
-        const tbody = document.querySelector('#scoreboard tbody');
-        
-        // Clear existing content
-        thead.innerHTML = '';
-        tbody.innerHTML = '';
-        
-        // Create the header row
-        const headerRow = document.createElement('tr');
-        
-        // Add headers for each player
-        this.players.forEach((player, index) => {
-            const th = document.createElement('th');
-            th.textContent = player.name;
-            
-            // Add current player class if it's this player's turn
-            if (index === this.currentPlayerIndex) {
-                th.classList.add('current-player');
-            }
-            
-            headerRow.appendChild(th);
-        });
-        
-        thead.appendChild(headerRow);
-        
-        // Create score row
-        const scoreRow = document.createElement('tr');
-        
-        // Add current player class to the entire row if applicable
-        if (this.currentPlayerIndex !== -1) {
-            scoreRow.classList.add('current-player');
-        }
-        
-        // Add scores for each player
-        this.players.forEach((player, index) => {
-            const td = document.createElement('td');
-            td.textContent = player.score;
-            
-            // Add current player class if it's this player's turn
-            if (index === this.currentPlayerIndex) {
-                td.classList.add('current-player');
-            }
-            
-            scoreRow.appendChild(td);
-        });
-        
-        tbody.appendChild(scoreRow);
-        
-        // Create enhancement rows
-        const enhancementTypes = ['Enr', 'CR', 'Fus']; // Shortened labels for tokens
-        
-        enhancementTypes.forEach((enhType, rowIndex) => {
-            const enhRow = document.createElement('tr');
-            
-            this.players.forEach((player, playerIndex) => {
-                const td = document.createElement('td');
-                let tokenUsed = false;
-                
-                // Check if this enhancement has been used
-                if (enhType === 'Enr' && player.enhancementsUsed.includes('enrichment')) {
-                    tokenUsed = true;
-                } else if (enhType === 'CR' && player.enhancementsUsed.includes('controlRod')) {
-                    tokenUsed = true;
-                } else if (enhType === 'Fus' && player.enhancementsUsed.includes('fusion')) {
-                    tokenUsed = true;
-                }
-                
-                td.textContent = enhType;
-                if (tokenUsed) {
-                    td.classList.add('used');
-                    td.style.textDecoration = 'line-through';
-                    td.style.opacity = '0.5';
-                }
-                
-                // Add current player class if it's this player's turn
-                if (playerIndex === this.currentPlayerIndex) {
-                    td.classList.add('current-player');
-                }
-                
-                enhRow.appendChild(td);
-            });
-            
-            tbody.appendChild(enhRow);
-        });
-        
-        // Update enhancement tokens too
-        this.updateEnhancementTokensDisplay();
-    }
-    
-    // Update the display of enhancement tokens
-    updateEnhancementTokensDisplay() {
-        const currentPlayer = this.players[this.currentPlayerIndex];
-        
-        // Manage token displays and states
-        const enrichmentToken = document.getElementById('enrichment-token');
-        const controlRodToken = document.getElementById('controlrod-token');
-        const fusionToken = document.getElementById('fusion-token');
-        
-        if (currentPlayer) {
-            // Update tokens based on current player's state
-            enrichmentToken.classList.toggle('used', currentPlayer.enhancementsUsed.includes('enrichment'));
-            controlRodToken.classList.toggle('used', currentPlayer.enhancementsUsed.includes('controlRod'));
-            fusionToken.classList.toggle('used', currentPlayer.enhancementsUsed.includes('fusion'));
-            
-            // Update button states
-            const enrichmentButton = document.getElementById('enrichment-button');
-            const controlRodButton = document.getElementById('controlrod-button');
-            const fusionButton = document.getElementById('fusion-button');
-            
-            if (enrichmentButton) {
-                enrichmentButton.disabled = currentPlayer.enhancementsUsed.includes('enrichment') || !this.isPlayerTurn;
-            }
-            
-            if (controlRodButton) {
-                controlRodButton.disabled = currentPlayer.enhancementsUsed.includes('controlRod') || !this.isPlayerTurn;
-            }
-            
-            if (fusionButton) {
-                fusionButton.disabled = currentPlayer.enhancementsUsed.includes('fusion') || !this.isPlayerTurn;
-            }
-        }
     }
 
     // Add methods to handle chain switch decisions
@@ -1146,6 +959,7 @@ class GameManager {
         // Move to decision phase to let player decide to continue or stop
         this.phase = 'DECISION';
         this.uiManager.showTurnChoiceButtons(true);
+        this.uiManager.refreshEnhancementButtons(this);
         this.uiManager.displayMessage(`Keeping your chain of ${this.chainDice.length} ${this.chainNumber}s. Continue or Stop?`);
     }
     
@@ -1184,6 +998,7 @@ class GameManager {
         // Move to decision phase to let player decide to continue or stop
         this.phase = 'DECISION';
         this.uiManager.showTurnChoiceButtons(true);
+        this.uiManager.refreshEnhancementButtons(this);
         this.uiManager.displayMessage(`Switched from ${oldChainLength}x${oldChainNumber} to ${this.chainDice.length}x${this.chainNumber}. Continue or Stop?`);
     }
 }

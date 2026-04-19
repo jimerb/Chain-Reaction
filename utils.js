@@ -172,52 +172,65 @@ function createTokenTexture(type, state = 'available') {
 }
 
 /**
- * Determines the facing value of a die based on its rotation quaternion
+ * Determines the facing value of a die based on its rotation quaternion.
+ *
+ * The BoxGeometry material order is [+X, -X, +Y, -Y, +Z, -Z]. Our materials
+ * array is built so that face N of the standard die (opposite faces summing
+ * to 7) lives on the matching axis direction:
+ *   +X -> 1    -X -> 6
+ *   +Y -> 2    -Y -> 5
+ *   +Z -> 3    -Z -> 4
+ * So whichever face vector points most "up" after rotation is the face showing.
+ *
  * @param {THREE.Quaternion} quaternion - The die's rotation quaternion
  * @returns {number} - The value of the face pointing up (1-6)
  */
 function getDiceValueFromRotation(quaternion) {
-    // Define unit vectors for the six faces of a die
-    const faceVectors = [
-        new THREE.Vector3(0, 1, 0),   // Face 1 (top)
-        new THREE.Vector3(1, 0, 0),   // Face 2 (right)
-        new THREE.Vector3(0, 0, 1),   // Face 3 (front)
-        new THREE.Vector3(0, 0, -1),  // Face 4 (back)
-        new THREE.Vector3(-1, 0, 0),  // Face 5 (left)
-        new THREE.Vector3(0, -1, 0)   // Face 6 (bottom)
+    // Face vector -> value mapping (must match diceController.createDiceMaterials)
+    const faces = [
+        { vec: new THREE.Vector3(1, 0, 0),  value: 1 },
+        { vec: new THREE.Vector3(-1, 0, 0), value: 6 },
+        { vec: new THREE.Vector3(0, 1, 0),  value: 2 },
+        { vec: new THREE.Vector3(0, -1, 0), value: 5 },
+        { vec: new THREE.Vector3(0, 0, 1),  value: 3 },
+        { vec: new THREE.Vector3(0, 0, -1), value: 4 }
     ];
-    
-    // Define which value is on which face
-    // In a standard die, opposite faces add up to 7
-    const faceValues = [1, 2, 3, 4, 5, 6];
-    
-    // Define the "up" direction in world space
+
     const upVector = new THREE.Vector3(0, 1, 0);
-    
-    // Create a rotation matrix from the quaternion
     const rotationMatrix = new THREE.Matrix4().makeRotationFromQuaternion(quaternion);
-    
-    // Apply the die's rotation to each face vector to get their world orientation
-    const worldFaceVectors = faceVectors.map(vector => {
-        const worldVector = vector.clone();
-        worldVector.applyMatrix4(rotationMatrix);
-        return worldVector;
-    });
-    
-    // Find which face is pointing most upward (highest dot product with up vector)
-    let maxDotProduct = -Infinity;
-    let upFaceIndex = -1;
-    
-    worldFaceVectors.forEach((worldVector, index) => {
-        const dotProduct = worldVector.dot(upVector);
-        if (dotProduct > maxDotProduct) {
-            maxDotProduct = dotProduct;
-            upFaceIndex = index;
+
+    let best = { value: 1, dot: -Infinity };
+    faces.forEach(face => {
+        const worldVec = face.vec.clone().applyMatrix4(rotationMatrix);
+        const dot = worldVec.dot(upVector);
+        if (dot > best.dot) {
+            best = { value: face.value, dot };
         }
     });
-    
-    // Return the value of the face pointing up
-    return faceValues[upFaceIndex];
+    return best.value;
+}
+
+/**
+ * Given a desired top-face value (1-6), returns an Euler rotation that
+ * places that face pointing up. Used to deterministically land a chosen
+ * value when animating a dice roll.
+ */
+function getRotationForValue(value) {
+    // The four yaw options spin the die around its vertical axis so the
+    // side faces don't always land in the same orientation.
+    const yaw = Math.floor(Math.random() * 4) * Math.PI / 2;
+    let euler;
+    switch (value) {
+        case 1: euler = { x: 0,          y: 0,  z: -Math.PI / 2 }; break; // +X up
+        case 6: euler = { x: 0,          y: 0,  z:  Math.PI / 2 }; break; // -X up
+        case 2: euler = { x: 0,          y: 0,  z: 0 };            break; // +Y up (default)
+        case 5: euler = { x: Math.PI,    y: 0,  z: 0 };            break; // -Y up
+        case 3: euler = { x: Math.PI / 2, y: 0, z: 0 };            break; // +Z up
+        case 4: euler = { x: -Math.PI / 2, y: 0, z: 0 };           break; // -Z up
+        default: euler = { x: 0, y: 0, z: 0 };
+    }
+    euler.y = yaw; // apply yaw around world up so the side orientation varies
+    return euler;
 }
 
 // If we're in a browser environment, make the functions globally available
@@ -225,6 +238,7 @@ if (typeof window !== 'undefined') {
     window.createDiceTexture = createDiceTexture;
     window.createTokenTexture = createTokenTexture;
     window.getDiceValueFromRotation = getDiceValueFromRotation;
+    window.getRotationForValue = getRotationForValue;
 }
 
 // Export functions for Node.js environment
@@ -232,6 +246,7 @@ if (typeof module !== 'undefined' && module.exports) {
     module.exports = {
         createDiceTexture,
         createTokenTexture,
-        getDiceValueFromRotation
+        getDiceValueFromRotation,
+        getRotationForValue
     };
 }

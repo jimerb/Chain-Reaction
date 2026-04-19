@@ -129,15 +129,21 @@ class UIManager {
     
     showTurnChoiceButtons(enabled = true) {
         this.continueButton.classList.toggle('hidden', !enabled);
+        this.continueButton.disabled = !enabled;
         this.stopButton.classList.toggle('hidden', !enabled);
-        this.rollButton.classList.add('hidden'); // Always hide roll when showing continue/stop
+        this.stopButton.disabled = !enabled;
+        this.rollButton.classList.add('hidden');
     }
     
     hideAllButtons() {
         this.rollButton.classList.add('hidden');
+        this.rollButton.disabled = true;
         this.continueButton.classList.add('hidden');
+        this.continueButton.disabled = true;
         this.stopButton.classList.add('hidden');
+        this.stopButton.disabled = true;
         this.showEnhancementButtons(false);
+        this.removeChainSwitchButtons();
     }
     
     // Keep showContinueButton and showStopButton simple if needed for specific cases,
@@ -192,24 +198,34 @@ class UIManager {
     showEnhancementButtons(show = true) {
         this.enhancementButtons.classList.toggle('hidden', !show);
     }
-    
+
     enableEnhancementButton(type, enable = true) {
         switch (type) {
-            case 'enrichment':
-                this.enrichmentButton.disabled = !enable;
-                break;
-            case 'controlRod':
-                this.controlRodButton.disabled = !enable;
-                break;
-            case 'fusion':
-                this.fusionButton.disabled = !enable;
-                break;
+            case 'enrichment': this.enrichmentButton.disabled = !enable; break;
+            case 'controlRod': this.controlRodButton.disabled = !enable; break;
+            case 'fusion':     this.fusionButton.disabled = !enable;     break;
         }
     }
-    
+
     showEnhancementPrompt(message, show = true) {
         this.enhancementPrompt.textContent = message;
         this.enhancementPrompt.classList.toggle('hidden', !show);
+    }
+
+    hideEnhancementPrompt() {
+        this.enhancementPrompt.textContent = '';
+        this.enhancementPrompt.classList.add('hidden');
+    }
+
+    /**
+     * Refresh the enabled/disabled state of the three enhancement buttons
+     * based on what the game manager currently allows for the active player.
+     */
+    refreshEnhancementButtons(gameManager) {
+        this.showEnhancementButtons(true);
+        ['enrichment', 'controlRod', 'fusion'].forEach(type => {
+            this.enableEnhancementButton(type, gameManager.canUseEnhancement(type));
+        });
     }
     
     // Enhancement Token Display
