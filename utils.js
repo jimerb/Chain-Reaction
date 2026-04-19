@@ -211,26 +211,29 @@ function getDiceValueFromRotation(quaternion) {
 }
 
 /**
- * Given a desired top-face value (1-6), returns an Euler rotation that
- * places that face pointing up. Used to deterministically land a chosen
- * value when animating a dice roll.
+ * Given a desired top-face value (1-6), returns an Euler rotation
+ * {x,y,z} that places that face pointing up.
+ *
+ * These values are intended to be applied with Euler order 'YXZ' (yaw
+ * first, then the face rotation). Under default 'XYZ' order the yaw
+ * would be applied around the already-tilted local Y and corrupt the
+ * face-up orientation for values 3 and 4. diceController sets
+ * die.rotation.order = 'YXZ' on each die so the default rotation.set()
+ * path lands the right face up.
  */
 function getRotationForValue(value) {
-    // The four yaw options spin the die around its vertical axis so the
-    // side faces don't always land in the same orientation.
     const yaw = Math.floor(Math.random() * 4) * Math.PI / 2;
     let euler;
     switch (value) {
-        case 1: euler = { x: 0,          y: 0,  z: -Math.PI / 2 }; break; // +X up
-        case 6: euler = { x: 0,          y: 0,  z:  Math.PI / 2 }; break; // -X up
-        case 2: euler = { x: 0,          y: 0,  z: 0 };            break; // +Y up (default)
-        case 5: euler = { x: Math.PI,    y: 0,  z: 0 };            break; // -Y up
-        case 3: euler = { x: Math.PI / 2, y: 0, z: 0 };            break; // +Z up
-        case 4: euler = { x: -Math.PI / 2, y: 0, z: 0 };           break; // -Z up
-        default: euler = { x: 0, y: 0, z: 0 };
+        case 1: euler = { x: 0,           z:  Math.PI / 2 }; break; // +X up
+        case 6: euler = { x: 0,           z: -Math.PI / 2 }; break; // -X up
+        case 2: euler = { x: 0,           z: 0 };            break; // +Y up (default)
+        case 5: euler = { x: Math.PI,     z: 0 };            break; // -Y up
+        case 3: euler = { x: -Math.PI / 2, z: 0 };           break; // +Z up
+        case 4: euler = { x:  Math.PI / 2, z: 0 };           break; // -Z up
+        default: euler = { x: 0, z: 0 };
     }
-    euler.y = yaw; // apply yaw around world up so the side orientation varies
-    return euler;
+    return { x: euler.x, y: yaw, z: euler.z };
 }
 
 // If we're in a browser environment, make the functions globally available

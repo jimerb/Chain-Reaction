@@ -130,10 +130,14 @@ class DiceController {
         // Create dice with proper material for each face
         for (let i = 0; i < count; i++) {
             const diceMesh = new THREE.Mesh(diceGeometry);
-            
+
             // Apply materials to each face of the die
             diceMesh.material = this.diceMaterials;
-            
+
+            // Apply yaw before the face rotation so spinning around the
+            // vertical never flips which face is up. See utils.js.
+            diceMesh.rotation.order = 'YXZ';
+
             // Position dice in their starting positions
             const position = DICE_POSITIONS[i % DICE_POSITIONS.length].clone();
             diceMesh.position.copy(position);
@@ -283,10 +287,11 @@ class DiceController {
                  // Fallback if more dice than defined positions (shouldn't happen with 5)
                  die.position.set(0, DICE_SIZE / 2 + 0.1, 0);
             }
-            die.rotation.set(0, 0, 0); // Reset rotation
+            die.rotation.set(0, 0, 0); // Reset rotation (face 2 up)
             die.userData.isRolling = false;
             die.userData.isSetAside = false;
-            die.userData.value = undefined; // Clear stored value if any
+            die.userData.value = undefined;
+            die.userData.finalValue = 2; // Match the reset rotation.
             die.visible = true; // Ensure dice are visible
             // No physics engine currently, so no need to reset physics state
         });
