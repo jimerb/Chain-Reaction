@@ -28,32 +28,20 @@ class DiceController {
     }
     
     createDiceMaterials() {
-        const materials = [];
-        
-        // Define colors for each face
-        const colors = [
-            0xffffff, // White base for 1
-            0xffffff, // White base for 2
-            0xffffff, // White base for 3
-            0xffffff, // White base for 4
-            0xffffff, // White base for 5
-            0xffffff  // White base for 6
-        ];
-        
-        // Create enhanced materials for each die face
-        for (let i = 1; i <= 6; i++) {
-            const texture = createDiceTexture(i);
-            const material = new THREE.MeshStandardMaterial({ 
-                map: texture,
-                color: colors[i-1],
+        // BoxGeometry material order is [+X, -X, +Y, -Y, +Z, -Z].
+        // Lay out the die so opposite faces sum to 7 (standard die).
+        // This ordering must stay in sync with getDiceValueFromRotation in utils.js.
+        const faceValuesInGeometryOrder = [1, 6, 2, 5, 3, 4];
+        return faceValuesInGeometryOrder.map(value => {
+            return new THREE.MeshStandardMaterial({
+                map: createDiceTexture(value),
+                color: 0xffffff,
                 roughness: 0.2,
                 metalness: 0.5,
-                emissive: 0x222222, // Subtle glow
+                emissive: 0x222222,
                 emissiveIntensity: 0.1
             });
-            materials.push(material);
-        }
-        return materials;
+        });
     }
     
     createTable() {
@@ -142,10 +130,14 @@ class DiceController {
         // Create dice with proper material for each face
         for (let i = 0; i < count; i++) {
             const diceMesh = new THREE.Mesh(diceGeometry);
-            
+
             // Apply materials to each face of the die
             diceMesh.material = this.diceMaterials;
-            
+
+            // Apply yaw before the face rotation so spinning around the
+            // vertical never flips which face is up. See utils.js.
+            diceMesh.rotation.order = 'YXZ';
+
             // Position dice in their starting positions
             const position = DICE_POSITIONS[i % DICE_POSITIONS.length].clone();
             diceMesh.position.copy(position);
@@ -171,93 +163,81 @@ class DiceController {
     }
     
     rollDice(activeIndices = null) {
-        // If no indices specified, roll all dice
         if (!activeIndices) {
             activeIndices = Array.from({ length: this.dice.length }, (_, i) => i);
         }
-        
         console.log("Rolling dice with indices:", activeIndices);
-        
-        // Create a promise for each die being rolled
-        const rollPromises = activeIndices.map(index => {
+
+        const tableWidth = TABLE_WIDTH * 0.8;
+        const tableDepth = TABLE_DEPTH * 0.7;
+
+        const rollPromises = activeIndices.map((index, i) => {
             const die = this.dice[index];
-            
-            // Mark this die as currently rolling
             die.userData.isRolling = true;
-            
-            return new Promise((resolve) => {
-                // Generate random position within table bounds (with padding)
-                const tableWidth = TABLE_WIDTH * 0.8; // Reduce effective area to 80%
-                const tableDepth = TABLE_DEPTH * 0.8; // Reduce effective area to 80%
-                const padding = DICE_SIZE * 1.2; // Increased padding
-                
-                // More conservative positioning to ensure dice stay on table
-                const xPos = (Math.random() * (tableWidth - padding * 2) - (tableWidth - padding * 2) / 2);
-                const zPos = (Math.random() * (tableDepth - padding * 2) - (tableDepth - padding * 2) / 2);
-                
-                // Store the target position for reference
-                die.userData.targetPosition = new THREE.Vector3(xPos, DICE_SIZE / 2 + 0.1, zPos);
-                
-                // Apply initial upward impulse
-                const position = die.position.clone();
-                
-                // Also animate a little hop and position change
-                gsap.to(die.position, {
-                    x: position.x,
-                    y: DICE_SIZE * 2, // Jump height
-                    z: position.z,
-                    duration: 0.5,
-                    ease: "power1.out",
-                    onComplete: function() {
-                        // Fall back down
-                        gsap.to(die.position, {
-                            y: DICE_SIZE / 2 + 0.1, // Slightly above table
-                            duration: 0.5,
-                            ease: "bounce.out",
-                            onComplete: function() {
-                                // Apply a rotation that guarantees a flat landing on one of the six faces
-                                // Use 90-degree (π/2) rotations to ensure dice land flat on a face
-                                // Random rotation angles (multiple of 90 degrees for proper face alignment)
-                                const xRot = Math.floor(Math.random() * 4) * Math.PI/2;
-                                const yRot = Math.floor(Math.random() * 4) * Math.PI/2;
-                                const zRot = Math.floor(Math.random() * 4) * Math.PI/2;
-                                
-                                gsap.to(die.rotation, {
-                                    x: xRot,
-                                    y: yRot,
-                                    z: zRot,
-                                    duration: 0.5,
-                                    ease: "power1.out",
-                                    onComplete: function() {
-                                        // Move to final position
-                                        gsap.to(die.position, {
-                                            x: die.userData.targetPosition.x,
-                                            z: die.userData.targetPosition.z,
-                                            duration: 0.3,
-                                            ease: "power1.out",
-                                            onComplete: function() {
-                                                // A small delay to ensure the die is fully settled
-                                                setTimeout(() => {
-                                                    die.userData.isRolling = false; // No longer rolling
-                                                    
-                                                    // Read and store the final value right when the die settles
-                                                    die.userData.finalValue = getDiceValueFromRotation(die.quaternion);
-                                                    console.log(`Die ${index} settled with value: ${die.userData.finalValue}`);
-                                                    
-                                                    resolve(die);
-                                                }, 200);
-                                            }
-                                        });
-                                    }
-                                });
-                            }
-                        });
+
+            // Pick the final value uniformly and pre-compute the rotation that
+            // puts that face up. This guarantees displayed value == reported value.
+            const finalValue = 1 + Math.floor(Math.random() * 6);
+            const targetEuler = getRotationForValue(finalValue);
+
+            // Spread dice across the top portion of the table so set-aside
+            // dice (bottom row) have room.
+            const padding = DICE_SIZE * 1.2;
+            const xSpan = tableWidth - padding * 2;
+            const zMin = -tableDepth / 2 + padding;
+            const zMax = tableDepth / 2 - DICE_SIZE * 3;
+            const targetX = (Math.random() * xSpan) - xSpan / 2;
+            const targetZ = zMin + Math.random() * Math.max(0.1, zMax - zMin);
+
+            // Accumulate spin distance so the die visibly tumbles, then lands
+            // on the chosen orientation.
+            const spinTurnsX = Math.floor(2 + Math.random() * 3);
+            const spinTurnsZ = Math.floor(2 + Math.random() * 3);
+
+            return new Promise(resolve => {
+                const tl = gsap.timeline({
+                    onComplete: () => {
+                        die.userData.isRolling = false;
+                        die.userData.finalValue = finalValue;
+                        // Sanity check: quaternion-derived value should match
+                        // the chosen final value. Log if not.
+                        const observed = getDiceValueFromRotation(die.quaternion);
+                        if (observed !== finalValue) {
+                            console.warn(`Die ${index}: chosen ${finalValue}, read ${observed}`);
+                        } else {
+                            console.log(`Die ${index} settled with value: ${finalValue}`);
+                        }
+                        resolve(die);
                     }
+                });
+
+                // Hop up, tumble toward the target orientation, land.
+                tl.to(die.position, {
+                    x: targetX,
+                    y: DICE_SIZE * 2.2,
+                    z: targetZ,
+                    duration: 0.35,
+                    ease: "power2.out"
+                }, 0);
+                tl.to(die.rotation, {
+                    x: targetEuler.x + Math.PI * 2 * spinTurnsX,
+                    y: targetEuler.y + Math.PI * 2,
+                    z: targetEuler.z + Math.PI * 2 * spinTurnsZ,
+                    duration: 0.75,
+                    ease: "power2.out"
+                }, 0);
+                tl.to(die.position, {
+                    y: DICE_SIZE / 2 + 0.1,
+                    duration: 0.4,
+                    ease: "bounce.out"
+                }, 0.35);
+                // Snap final rotation precisely so readback matches chosen value.
+                tl.call(() => {
+                    die.rotation.set(targetEuler.x, targetEuler.y, targetEuler.z);
                 });
             });
         });
-        
-        // Return a promise that resolves when all dice have finished rolling
+
         return Promise.all(rollPromises);
     }
     
@@ -307,10 +287,11 @@ class DiceController {
                  // Fallback if more dice than defined positions (shouldn't happen with 5)
                  die.position.set(0, DICE_SIZE / 2 + 0.1, 0);
             }
-            die.rotation.set(0, 0, 0); // Reset rotation
+            die.rotation.set(0, 0, 0); // Reset rotation (face 2 up)
             die.userData.isRolling = false;
             die.userData.isSetAside = false;
-            die.userData.value = undefined; // Clear stored value if any
+            die.userData.value = undefined;
+            die.userData.finalValue = 2; // Match the reset rotation.
             die.visible = true; // Ensure dice are visible
             // No physics engine currently, so no need to reset physics state
         });
@@ -633,6 +614,20 @@ class DiceController {
         });
     }
     
+    // Rotate a die so the given face value (1-6) ends up pointing up,
+    // and update its stored final value. Used by Enrichment.
+    setDieValue(index, value) {
+        if (index < 0 || index >= this.dice.length) {
+            console.warn(`setDieValue: invalid index ${index}`);
+            return;
+        }
+        const die = this.dice[index];
+        const euler = getRotationForValue(value);
+        die.rotation.set(euler.x, euler.y, euler.z);
+        die.userData.finalValue = value;
+        console.log(`setDieValue: die ${index} set to ${value}`);
+    }
+
     unhighlightDice() {
         this.dice.forEach(die => {
             if (!die.userData.isSetAside) {

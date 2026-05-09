@@ -171,6 +171,12 @@ function setupGame() {
     // Transition Screens
     uiManager.showGameScreen();
     gameManager.startGame(); // Determine first player and update UI
+
+    // Expose for debugging / UI tests.
+    window.gameManager = gameManager;
+    window.uiManager = uiManager;
+    window.diceController = diceController;
+    window.enhancementController = enhancementController;
 }
 
 function handleGameEnd(winnerInfo) {
