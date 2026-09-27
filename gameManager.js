@@ -1,1007 +1,181 @@
-// gameManager.js
-// Using globally loaded utility functions
-
-const TARGET_SCORE = 100;
-
-// We're now using the global AssessDiceRoll from diceLogic.js,
-// which is loaded via a script tag before this file.
-// No need to import or redefine it - checking that it's available:
-if (typeof AssessDiceRoll !== 'function') {
-    console.error("ERROR: AssessDiceRoll function not found! Make sure diceLogic.js is loaded before gameManager.js");
-}
-
-class Player {
-    constructor(id, name, isHuman = false) {
-        this.id = id;
-        this.name = name;
-        this.score = 0;
-        this.enhancements = {
-            enrichment: true,  // Can increase a die value
-            controlRod: true,  // Can prevent meltdown
-            fusion: true       // Can change matching dice to a different value
-        };
-        this.isHuman = isHuman; // Currently only relevant for the first player
-        this.finalTurnTaken = false; // For end-game fairness rule
-    }
-
-    addScore(points) {
-        this.score += points;
-        if (this.score < 0) {
-            this.score = 0; // Score cannot go below zero
+/* The rules engine owns all dice, scoring and phase transitions. No DOM or timers. */
+(function (root) {
+    'use strict';
+    const groups = dice => [...new Set(dice.map(d => d.value))].map(value => ({
+        value, ids: dice.filter(d => d.value === value).map(d => d.id)
+    })).filter(g => g.ids.length >= 2);
+    const points = (value, count) => value * count;
+    class GameManager {
+        constructor({ names = ['Player 1', 'Player 2'], target = 100, enhancements = true, computers = false, random = Math.random } = {}) {
+            if (names.length < 2 || names.length > 5 || ![50, 100, 200].includes(target)) throw new Error('Invalid game setup');
+            this.players = names.map((name, id) => ({ id, name: String(name).trim().slice(0, 24) || ('Player ' + (id + 1)), score: 0, turns: 0,
+                computer: computers && id > 0, tokens: { enrichment: enhancements, controlRod: enhancements, fusion: enhancements } }));
+            this.target = target;
+            this.random = random;
+            this.current = 0;
+            this.round = 1;
+            this.finalRound = false;
+            this.contenders = this.players.map(p => p.id);
+            this.tieBreak = false;
+            this.history = [];
+            this.winner = null;
+            this.resetTurn();
         }
-    }
-
-    useEnhancement(type) {
-        if (this.enhancements[type]) {
-            this.enhancements[type] = false;
+        get player() { return this.players[this.current]; }
+        get held() { return this.dice.filter(d => d.state === 'held'); }
+        get available() { return this.dice.filter(d => d.state === 'active'); }
+        get chainScore() { return points(this.chain, this.held.length); }
+        get matches() { return this.available.filter(d => this.rolledIds.includes(d.id) && d.value === this.chain); }
+        get alternatives() { return groups(this.available.filter(d => this.rolledIds.includes(d.id))).filter(g => g.value !== this.chain); }
+        resetTurn() {
+            this.dice = Array.from({ length: 5 }, (_, id) => ({ id, value: id + 1, state: 'active' }));
+            this.chain = null;
+            this.rolledIds = [];
+            this.enhancementUsed = false;
+            this.beforeRollScore = 0;
+            this.rollNumber = 0;
+            this.phase = 'READY';
+            this.result = null;
+        }
+        roll(values) {
+            if (!['READY', 'DECISION'].includes(this.phase) || !this.available.length) return false;
+            const dice = this.available;
+            const next = values || dice.map(() => 1 + Math.floor(this.random() * 6));
+            if (next.length !== dice.length || !next.every(v => Number.isInteger(v) && v >= 1 && v <= 6)) throw new Error('A roll needs one d6 value per available die');
+            this.beforeRollScore = this.chainScore;
+            this.rolledIds = dice.map(d => d.id);
+            this.enhancementUsed = false;
+            this.rollNumber++;
+            dice.forEach((d, i) => { d.value = next[i]; });
+            this.phase = 'REVIEW';
+            if (this.dice.every(d => d.value === this.dice[0].value)) {
+                this.chain = this.dice[0].value;
+                this.dice.forEach(d => { d.state = 'held'; });
+                this.finish(this.chainScore, 'Critical Mass', 'All five dice matched. Your chain is banked.');
+            }
             return true;
         }
-        return false;
-    }
-}
-
-class GameManager {
-    constructor(playerCount, humanName, uiManager, diceController, gameEndCallback) {
-        this.playerCount = Math.min(Math.max(2, playerCount), 8); // 2-8 players
-        this.humanName = humanName;
-        this.uiManager = uiManager;
-        this.diceController = diceController;
-        this.enhancementController = null; // Set later
-        this.gameEndCallback = gameEndCallback;
-        
-        this.players = [];
-        this.currentPlayerIndex = 0;
-        this.turnNumber = 1;
-        this.gameRound = 1; // Track rounds for tie-breaking and fairness
-        
-        // Turn state
-        this.phase = 'SETUP'; // SETUP, ROLL, CHAIN_SELECTION, DECISION, CHAIN_SWITCH_DECISION, EXTEND, MELTDOWN_CHECK, SCORING, END
-        this.currentRoll = [];
-        this.chainNumber = null;
-        this.chainDice = [];
-        this.potentialChains = [];
-        this.newPotentialChain = null; // For storing a new potential chain when one already exists
-        this.radiationLeakValue = null;
-        this.enhancementUsedThisTurn = false;
-        this.waitingForEnrichmentTarget = false;
-        this.endGameTriggered = false; // Flag when someone reaches TARGET_SCORE
-        this.playerWhoTriggeredEnd = null; // ID of player who first hit the score
-    }
-    
-    setEnhancementController(controller) {
-        this.enhancementController = controller;
-    }
-    
-    // Player Management
-    setupPlayers() {
-        this.players = [];
-        
-        // Add human player
-        this.players.push(new Player(0, this.humanName, true));
-        
-        // Add AI players
-        for (let i = 1; i < this.playerCount; i++) {
-            this.players.push(new Player(i, `Player ${i + 1}`));
+        choices() {
+            if (this.phase !== 'REVIEW') return [];
+            const choices = this.alternatives.map(g => ({ value: g.value, count: g.ids.length, ids: g.ids, kind: this.chain ? 'switch' : 'start', score: points(g.value, g.ids.length) }));
+            if (this.chain && this.matches.length) choices.unshift({ value: this.chain, count: this.held.length + this.matches.length,
+                ids: this.matches.map(d => d.id), kind: 'keep', score: points(this.chain, this.held.length + this.matches.length) });
+            return choices;
         }
-        
-        // Randomly determine starting player
-        this.currentPlayerIndex = Math.floor(Math.random() * this.playerCount);
-    }
-    
-    getPlayers() {
-        return this.players;
-    }
-    
-    getCurrentPlayer() {
-        return this.players[this.currentPlayerIndex];
-    }
-    
-    // Game Flow Control
-    startGame() {
-        this.phase = 'ROLL';
-        this.uiManager.highlightActivePlayer(this.getCurrentPlayer().id);
-        this.uiManager.showRollButton(true);
-        this.uiManager.displayMessage(`${this.getCurrentPlayer().name}'s turn to roll the dice!`);
-    }
-    
-    // Handle button actions
-    handleRollAction() {
-        if (this.phase !== 'ROLL') return;
-        
-        this.uiManager.showRollButton(false);
-        this.uiManager.displayMessage("Rolling dice...");
-        
-        // Roll all available dice
-        this.diceController.rollDice().then(() => {
-            this.afterRoll();
-        });
-    }
-    
-    handleContinueAction() {
-        if (this.phase !== 'DECISION') return;
-        
-        console.log("--- Handling Continue Action ---");
-        console.log("   Current chain dice (to keep):", JSON.stringify(this.chainDice));
-        
-        // Determine which dice to roll (those *not* in the chain)
-        const allDiceIndices = this.diceController.dice.map(die => die.userData.id);
-        const diceToRollIndices = allDiceIndices.filter(index => !this.chainDice.includes(index));
-        
-        console.log("   All dice indices:", allDiceIndices);
-        console.log("   Indices to roll:", diceToRollIndices);
-        
-        if (diceToRollIndices.length === 0) {
-            console.log("   No remaining dice to roll. Stopping turn instead.");
-            this.handleStopAction(); // If all dice are part of the chain, just score.
-            return;
-        }
-        
-        this.phase = 'ROLL'; // Change phase *before* async roll call
-        this.uiManager.hideAllButtons(); // Hide decision buttons immediately
-        this.uiManager.displayMessage(`${this.getCurrentPlayer().name} continues rolling with ${diceToRollIndices.length} dice...`);
-        
-        // Roll ONLY the dice that are NOT part of the current chain
-        this.diceController.rollDice(diceToRollIndices).then(() => {
-            console.log("   Roll completed after continue action.");
-            this.afterRoll(); // Process the results of the new roll
-        });
-        
-        console.log("--- Exiting Handle Continue Action (Roll Initiated) ---");
-    }
-    
-    handleStopAction() {
-        if (this.phase !== 'DECISION') return;
-        
-        this.scoreChain();
-        this.endTurn();
-    }
-    
-    // Die selection (from click handler)
-    handleDieClick(die) {
-        console.log("--- Handling Die Click --- Clicked Die Index:", die.userData.id, "Current Phase:", this.phase);
-        
-        if (!this.canPlayerAct()) {
-             console.log("   Player cannot act now.");
-             return; 
-        }
-        
-        // If waiting for Enrichment target selection
-        if (this.waitingForEnrichmentTarget && this.phase === 'DECISION') {
-            console.log(`   Enrichment target selected: Die ${die.userData.id}`);
-            this.enhancementController.handleEnrichmentTargetSelection(die);
-            this.setWaitingForEnrichmentTarget(false); // Reset flag
-            return;
-        }
-
-        // Allow die click ONLY during CHAIN_SELECTION phase
-        if (this.phase !== 'CHAIN_SELECTION') {
-            console.log(`   Ignoring die click in phase: ${this.phase}. Expected CHAIN_SELECTION.`);
-            return;
-        }
-
-        // Check if this die is already set aside - if so, ignore the click
-        const clickedDieData = this.currentRoll.find(d => d.index === die.userData.id);
-        if (!clickedDieData || clickedDieData.setAside) {
-            console.log(`   Ignoring click on die ${die.userData.id} - die is already set aside or invalid.`);
-            this.uiManager.displayMessage("This die is already part of a chain. Select an active die.", "warning");
-            return;
-        }
-        
-        const clickedValue = clickedDieData.value;
-        console.log(`   Clicked die value: ${clickedValue}`);
-
-        // Check if this value corresponds to a *valid* potential chain
-        const correspondingChain = this.potentialChains.find(chain => 
-            chain.value === clickedValue && 
-            chain.diceIndices.includes(clickedDieData.index)
-        );
-
-        if (correspondingChain) {
-            console.log(`   Match found! Selecting chain with value ${clickedValue}`);
-            // Pass the value and the FULL list of indices for that value
-            this.selectChain(clickedValue, correspondingChain.diceIndices);
-        } else {
-            console.warn(`   Clicked die (value ${clickedValue}, index ${die.userData.id}) does not belong to any currently valid potential chain.`);
-            this.uiManager.displayMessage("Click on a highlighted die to select its chain.", "warning");
-        }
-        console.log("--- Finished Handling Die Click ---");
-    }
-    
-    // Game Logic
-    afterRoll() {
-        console.log("--- Entering afterRoll --- Phase:", this.phase);
-        // Update this.currentRoll with the latest values from the dice controller
-        const diceValues = this.diceController.getDiceValues();
-        this.currentRoll = diceValues;
-        console.log(" Raw Dice Values Received:", JSON.stringify(this.currentRoll));
-
-        // Filter out dice that are already set aside
-        const activeDice = this.currentRoll.filter(die => !die.setAside);
-        console.log(" Filtered Active Dice:", JSON.stringify(activeDice));
-
-        // Check if we already have a chain and need to extend it with newly rolled dice
-        if (this.chainNumber !== null && this.chainDice.length > 0) {
-            console.log(" Checking for chain extension with value:", this.chainNumber);
-            
-            // First, we need to run AssessDiceRoll on all dice to properly determine chain membership
-            // Extract values for AssessDiceRoll (including set aside dice)
-            const allDiceValuesArray = this.currentRoll.map(die => die.value);
-            console.log(" All Dice Values Array for chain extension check:", allDiceValuesArray);
-            
-            // Run AssessDiceRoll to get proper chain membership
-            const assessmentResult = AssessDiceRoll(allDiceValuesArray);
-            console.log(" Extension AssessDiceRoll Result:", JSON.stringify(assessmentResult));
-            
-            // Find which chain (if any) matches our current chain value
-            let chainId = 0; // 0=none, 1=Chain1, 2=Chain2
-            if (assessmentResult.Chain1Number === this.chainNumber) {
-                chainId = 1;
-            } else if (assessmentResult.Chain2Number === this.chainNumber) {
-                chainId = 2;
-            }
-            
-            console.log(` Chain with value ${this.chainNumber} has chainId: ${chainId}`);
-            
-            if (chainId > 0) {
-                // Now find newly rolled dice that are part of this chain but not yet set aside
-                const matchingNewDice = [];
-                
-                for (let i = 0; i < 5; i++) {
-                    // Check if this die belongs to our chain based on AssessDiceRoll
-                    if (assessmentResult[`Die${i+1}`] === chainId) {
-                        const die = this.currentRoll[i];
-                        if (!die.setAside) {
-                            matchingNewDice.push(die.index);
-                        }
-                    }
-                }
-                
-                console.log(" Found matching new dice for existing chain using AssessDiceRoll:", matchingNewDice);
-                
-                if (matchingNewDice.length > 0) {
-                    console.log(" Extending existing chain with", matchingNewDice.length, "additional dice");
-
-                    this.chainDice = [...this.chainDice, ...matchingNewDice];
-                    this.diceController.setDiceAside(matchingNewDice);
-                    this.diceController.highlightAllChainDice(this.chainDice);
-
-                    const chainScore = this.chainNumber * this.chainDice.length;
-                    this.uiManager.updateChainInfo(this.chainDice.length, chainScore);
-
-                    // Chain reached 5 dice — Critical Mass, auto-score and end turn.
-                    if (this.chainDice.length === 5) {
-                        this.uiManager.displayMessage(
-                            `CRITICAL MASS! All 5 dice are ${this.chainNumber}s — scoring ${chainScore} points.`,
-                            true
-                        );
-                        this.scoreChain();
-                        this.endTurn();
-                        return;
-                    }
-
-                    this.uiManager.displayMessage(
-                        `Chain extended! ${matchingNewDice.length} new ${this.chainNumber}${matchingNewDice.length > 1 ? 's' : ''} added (chain now ${this.chainDice.length}). Continue or Stop?`,
-                        true
-                    );
-                    this.phase = 'DECISION';
-                    this.uiManager.showTurnChoiceButtons(true);
-                    this.uiManager.refreshEnhancementButtons(this);
-                    return;
-                }
-            }
-
-            // At this point, no matching dice were found for the current chain
-            // Before declaring MELTDOWN, check if there's a NEW potential chain to switch to
-            console.log(" No matching dice for current chain. Checking for new potential chains...");
-
-            // Check if there are any NEW chains (different value) in the active dice
-            // Look through the assessment result for other chains
-            const newPotentialChains = [];
-
-            // Check Chain1 if it exists and is different from current chain
-            if (assessmentResult.Chain1Size >= 2 && assessmentResult.Chain1Number !== this.chainNumber) {
-                const chain1DiceIndices = [];
-                for (let i = 0; i < 5; i++) {
-                    if (assessmentResult[`Die${i+1}`] === 1) {
-                        const die = this.currentRoll[i];
-                        if (!die.setAside) {
-                            chain1DiceIndices.push(die.index);
-                        }
-                    }
-                }
-                if (chain1DiceIndices.length >= 2) {
-                    newPotentialChains.push({
-                        value: assessmentResult.Chain1Number,
-                        count: chain1DiceIndices.length,
-                        diceIndices: chain1DiceIndices
-                    });
-                    console.log(` Found new potential Chain1: Value=${assessmentResult.Chain1Number}, Count=${chain1DiceIndices.length}`);
-                }
-            }
-
-            // Check Chain2 if it exists and is different from current chain
-            if (assessmentResult.Chain2Size >= 2 && assessmentResult.Chain2Number !== this.chainNumber) {
-                const chain2DiceIndices = [];
-                for (let i = 0; i < 5; i++) {
-                    if (assessmentResult[`Die${i+1}`] === 2) {
-                        const die = this.currentRoll[i];
-                        if (!die.setAside) {
-                            chain2DiceIndices.push(die.index);
-                        }
-                    }
-                }
-                if (chain2DiceIndices.length >= 2) {
-                    newPotentialChains.push({
-                        value: assessmentResult.Chain2Number,
-                        count: chain2DiceIndices.length,
-                        diceIndices: chain2DiceIndices
-                    });
-                    console.log(` Found new potential Chain2: Value=${assessmentResult.Chain2Number}, Count=${chain2DiceIndices.length}`);
-                }
-            }
-
-            // If a new potential chain exists, offer SWITCH/KEEP choice
-            if (newPotentialChains.length > 0) {
-                console.log(` Found ${newPotentialChains.length} new potential chain(s). Offering SWITCH/KEEP choice.`);
-
-                // Use the first (or best) new potential chain
-                this.newPotentialChain = newPotentialChains[0];
-
-                // Move to chain switch decision phase
-                this.phase = 'CHAIN_SWITCH_DECISION';
-
-                // Display the chain switch UI
-                const { keepButton, switchButton } = this.uiManager.showChainSwitchButtons(
-                    this.chainNumber,
-                    this.newPotentialChain.value,
-                    this.chainDice.length,
-                    this.newPotentialChain.count
-                );
-
-                // Attach event listeners to the buttons
-                keepButton.addEventListener('click', () => this.handleKeepChainDecision());
-                switchButton.addEventListener('click', () => this.handleSwitchChainDecision());
-
-                // Display informative message
-                this.uiManager.displayMessage(`New chain available! Keep your current chain or switch to the new one?`);
-
-                return; // Wait for player decision
-            }
-
-            // No matching dice AND no new chains were found - this is a MELTDOWN
-            console.log(" No matching dice and no new chains - this is a MELTDOWN!");
-            this.uiManager.displayMessage("MELTDOWN! No matching dice for your chain and no new chains. Your turn ends with 0 points.", "error");
-            this.endTurn();
-            return; // Stop further processing for this roll
-        }
-
-        // Ensure activeDice are valid
-        if (!activeDice || activeDice.length === 0) {
-            console.warn(" No active dice found after roll. Ending turn prematurely.");
-            this.endTurn();
-            return;
-        }
-
-        // Extract just the values for AssessDiceRoll
-        const allDiceValuesArray = this.currentRoll.map(die => die.value);
-        console.log(" All Dice Values Array for AssessDiceRoll:", allDiceValuesArray);
-
-        // Validate that we have the AssessDiceRoll function
-        if (typeof AssessDiceRoll !== 'function') {
-            console.error("CRITICAL ERROR: AssessDiceRoll function is not available!");
-            this.uiManager.displayMessage("Game error: Chain detection function not available. Please refresh the page.", "error");
-            return;
-        }
-
-        // Use AssessDiceRoll to analyze the dice
-        console.log(" Calling AssessDiceRoll with values:", allDiceValuesArray);
-        const assessmentResult = AssessDiceRoll(allDiceValuesArray);
-        console.log(" AssessDiceRoll Result:", JSON.stringify(assessmentResult));
-
-        // Critical Mass (five of a kind on the opening roll): score the
-        // 5-chain immediately, then per the build-instruction clarification
-        // the player may start a fresh chain attempt in the same turn.
-        if (assessmentResult.Chain1Size === 5) {
-            const value = assessmentResult.Chain1Number;
-            this.chainNumber = value;
-            this.chainDice = activeDice.map(d => d.index);
-            const bankedPoints = value * 5;
-            this.getCurrentPlayer().addScore(bankedPoints);
-            this.uiManager.updateScore(this.getCurrentPlayer().id, this.getCurrentPlayer().score);
-            this.uiManager.displayMessage(`CRITICAL MASS! Five ${value}s scored ${bankedPoints} points. Rolling again...`, true);
-            console.log(` Critical Mass: banked ${bankedPoints}, re-rolling all 5 dice.`);
-            // Reset chain for the new attempt inside the same turn.
-            this.chainNumber = null;
-            this.chainDice = [];
-            this.potentialChains = [];
-            this.diceController.resetDice();
-            this.phase = 'ROLL';
-            this.diceController.rollDice().then(() => this.afterRoll());
-            return;
-        }
-
-        // --- Chain Detection using AssessDiceRoll ---
-        this.potentialChains = [];
-        console.log("--- Starting Chain Detection from AssessDiceRoll Results ---");
-        
-        // Process Chain 1 if it exists
-        if (assessmentResult.Chain1Size >= 2) {
-            const chain1DiceIndices = [];
-            
-            // Map the Die1-Die5 membership to actual dice indices
-            for (let i = 0; i < 5; i++) {
-                if (assessmentResult[`Die${i+1}`] === 1) { // Die belongs to Chain1
-                    // Get the die index from the currentRoll array
-                    const dieIndex = this.currentRoll[i].index;
-                    chain1DiceIndices.push(dieIndex);
-                }
-            }
-            
-            console.log(`   -> Chain 1 Found: Value=${assessmentResult.Chain1Number}, Count=${assessmentResult.Chain1Size}, Indices=${JSON.stringify(chain1DiceIndices)}`);
-            
-            this.potentialChains.push({
-                value: assessmentResult.Chain1Number,
-                count: assessmentResult.Chain1Size,
-                diceIndices: chain1DiceIndices
-            });
-        }
-        
-        // Process Chain 2 if it exists
-        if (assessmentResult.Chain2Size >= 2) {
-            const chain2DiceIndices = [];
-            
-            // Map the Die1-Die5 membership to actual dice indices
-            for (let i = 0; i < 5; i++) {
-                if (assessmentResult[`Die${i+1}`] === 2) { // Die belongs to Chain2
-                    // Get the die index from the currentRoll array
-                    const dieIndex = this.currentRoll[i].index;
-                    chain2DiceIndices.push(dieIndex);
-                }
-            }
-            
-            console.log(`   -> Chain 2 Found: Value=${assessmentResult.Chain2Number}, Count=${assessmentResult.Chain2Size}, Indices=${JSON.stringify(chain2DiceIndices)}`);
-            
-            this.potentialChains.push({
-                value: assessmentResult.Chain2Number,
-                count: assessmentResult.Chain2Size,
-                diceIndices: chain2DiceIndices
-            });
-        }
-        
-        console.log("--- Finished Chain Detection ---");
-        console.log(" Final Potential Chains Array:", JSON.stringify(this.potentialChains));
-
-        // Radiation Leak: opening roll with all 5 dice showing different
-        // values. Per rules, the player loses 10 points and the turn ends.
-        if (assessmentResult.ChainCount === 0 && activeDice.length === 5) {
-            console.log(" Radiation Leak Detected (All 5 dice have different values)!");
-            const player = this.getCurrentPlayer();
-            const beforeScore = player.score;
-            player.addScore(-10); // Player.addScore floors the score at 0.
-            const delta = player.score - beforeScore;
-            this.uiManager.updateScore(player.id, player.score);
-            this.uiManager.displayMessage(
-                `Radiation Leak! No matching dice. ${player.name} loses ${-delta} points.`,
-                true
-            );
-            this.endTurn();
-            return;
-        }
-
-        // --- Handle Game Flow based on Chains ---
-        if (this.potentialChains.length === 0) {
-            console.log(" No potential chains found. Ending turn.");
-            this.uiManager.displayMessage("No chain combinations possible. Turn ends with no points.");
-            this.endTurn();
-            return;
-        }
-
-        // If there's exactly one potential chain, auto-select it so the
-        // player doesn't have to click through an obvious choice.
-        if (this.potentialChains.length === 1) {
-            const only = this.potentialChains[0];
-            console.log(` Auto-selecting only potential chain: ${only.count}x${only.value}`);
-            this.phase = 'CHAIN_SELECTION'; // selectChain expects we're in selection-ish state
-            this.uiManager.showRollButton(false);
-            this.selectChain(only.value, only.diceIndices);
-            return;
-        }
-
-        console.log(` Moving to CHAIN_SELECTION phase with ${this.potentialChains.length} potential chains.`);
-        this.phase = 'CHAIN_SELECTION';
-        this.uiManager.displayMessage(`Select a chain. ${this.potentialChains.length} possible chains.`);
-        this.uiManager.showRollButton(false);
-        this.highlightPotentialChains();
-        console.log("--- Exiting afterRoll (Proceeding to Highlight) ---");
-    }
-    
-    highlightPotentialChains() {
-        console.log("--- Highlighting Potential Chains --- Input:", JSON.stringify(this.potentialChains));
-        
-        // CRITICAL: Ensure we ONLY use chains with >= 2 dice of the SAME value
-        // (This validation should technically happen in afterRoll, but double-check here)
-        const validChains = this.potentialChains.filter(chain => {
-            if (!chain || !Array.isArray(chain.diceIndices) || chain.diceIndices.length < 2) {
-                console.warn("Filtering out invalid chain structure:", chain);
-                return false;
-            }
-            // Verify all dice in this chain actually have the correct value from the *current* roll state
-            const confirmedDiceIndices = chain.diceIndices.filter(dieIndex => {
-                const die = this.currentRoll.find(d => d.index === dieIndex);
-                return die && !die.setAside && die.value === chain.value;
-            });
-            
-            if (confirmedDiceIndices.length < 2) {
-                 console.warn(`Chain value ${chain.value} has < 2 confirmed matching dice after check. Indices: ${JSON.stringify(chain.diceIndices)}, Confirmed: ${JSON.stringify(confirmedDiceIndices)}`);
-                return false;
-            }
-            
-            // Update the chain object with only the confirmed dice
-            chain.diceIndices = confirmedDiceIndices;
-            chain.count = confirmedDiceIndices.length;
-            console.log(`   Validated Chain: Value=${chain.value}, Count=${chain.count}, Indices=${JSON.stringify(chain.diceIndices)}`);
-            return true;
-        });
-
-        console.log("Valid Chains Prepared for Highlighting:", JSON.stringify(validChains));
-
-        if (validChains.length === 0) {
-            console.warn("No valid chains remain after final validation. This might indicate an issue upstream.");
-            // If no chains are truly valid, the turn should properly end
-            this.uiManager.displayMessage("Error: No valid chains found after final check. Ending turn.", "error");
-            this.endTurn(); // Ensure the turn ends properly
-            return; 
-        }
-
-        // Use the dedicated method in diceController to highlight all validated chains
-        this.diceController.highlightAllPotentialChains(validChains);
-
-        // Update the message based on validated chains
-        this.uiManager.displayMessage(`Select a chain. ${validChains.length} possible chains highlighted.`);
-        console.log("--- Finished Highlighting Potential Chains ---");
-    }
-    
-    selectChain(value, diceIndices) {
-        console.log(`--- Chain Selection Attempt --- Value: ${value}, Clicked Dice Indices (may be partial): ${JSON.stringify(diceIndices)}`);
-        
-        // Check if we already have a chain set aside in this turn
-        const existingSetAsideDice = this.currentRoll.filter(die => die.setAside);
-        if (existingSetAsideDice.length > 0) {
-            console.log(`   Cannot select new chain: Already have ${existingSetAsideDice.length} dice set aside with value ${this.chainNumber}`);
-            this.uiManager.displayMessage(`You've already selected a chain with value ${this.chainNumber}. Continue rolling or stop to score.`, "warning");
-            
-            // Move to decision phase with the existing chain
+        choose(value) {
+            const choice = this.choices().find(c => c.value === value);
+            if (!choice) return false;
+            // Switching gives up the old chain's points, not its physical dice.
+            // Released dice can roll again; rolledIds keeps their old faces from
+            // becoming a fresh pair or enhancement target before that next roll.
+            if (choice.kind === 'switch') this.held.forEach(d => { d.state = 'active'; });
+            choice.ids.forEach(id => { this.dice[id].state = 'held'; });
+            this.chain = value;
             this.phase = 'DECISION';
-            this.uiManager.showTurnChoiceButtons(true);
-            this.uiManager.refreshEnhancementButtons(this);
-            return;
+            this.finishIfFull();
+            return true;
         }
-        
-        // CRITICAL: Find ALL active dice with the selected value, regardless of what was clicked
-        const allMatchingDice = this.currentRoll
-            .filter(die => !die.setAside && die.value === value)
-            .map(die => die.index);
-            
-        console.log(`   Found ALL active dice with value ${value}:`, JSON.stringify(allMatchingDice));
-        
-        if (allMatchingDice.length < 2) {
-            console.error(`   Error: Cannot form chain with value ${value}. Found only ${allMatchingDice.length} matching dice. Required >= 2.`);
-            this.uiManager.displayMessage(`Error: Need at least 2 dice with value ${value} to form a chain.`, "error");
-            // Do not change phase, allow user to select a different valid chain if available
-            return; 
+        finishIfFull() {
+            if (this.held.length === 5) this.finish(this.chainScore, 'Critical Mass', 'All five dice matched. Your chain is banked.');
         }
-        
-        // Chain is valid, proceed
-        this.chainNumber = value;
-        this.chainDice = allMatchingDice; // Use ALL matching dice
-        
-        console.log(`   Confirmed Chain: Value=${this.chainNumber}, Dice=${JSON.stringify(this.chainDice)}`);
-        
-        // Set aside ALL the dice in the confirmed chain
-        this.diceController.setDiceAside(this.chainDice);
-        
-        // Ensure all chain dice have consistent highlighting
-        this.diceController.highlightAllChainDice(this.chainDice);
-        
-        // Calculate score for this specific chain segment
-        const chainScore = this.chainNumber * this.chainDice.length;
-        
-        // Update UI immediately
-        this.uiManager.clearMessages();
-        this.uiManager.updateChainInfo(this.chainDice.length, chainScore); // Show initial chain info
-        this.uiManager.displayMessage(`Selected chain: ${this.chainDice.length} x ${this.chainNumber}. Continue or Stop?`);
-        
-        // Move to the decision phase
-        this.phase = 'DECISION';
-        console.log("   Moving to DECISION phase.");
-        
-        // Now rely *only* on the UIManager method, which uses .hidden class
-        console.log("BUTTONS DEBUG - Before calling showTurnChoiceButtons:");
-        console.log("   - Roll button hidden:", this.uiManager.rollButton.classList.contains('hidden'));
-        console.log("   - Continue button hidden:", this.uiManager.continueButton.classList.contains('hidden'));
-        console.log("   - Stop button hidden:", this.uiManager.stopButton.classList.contains('hidden'));
-
-        this.uiManager.showTurnChoiceButtons(true);
-        this.uiManager.refreshEnhancementButtons(this);
-
-        console.log("BUTTONS DEBUG - After calling showTurnChoiceButtons:");
-        console.log("   - Roll button hidden:", this.uiManager.rollButton.classList.contains('hidden'));
-        console.log("   - Continue button hidden:", this.uiManager.continueButton.classList.contains('hidden'));
-        console.log("   - Stop button hidden:", this.uiManager.stopButton.classList.contains('hidden'));
-        
-        console.log("   Buttons set: Continue and Stop buttons shown, Roll button hidden");
-    }
-
-    scoreChain() {
-        if (!this.chainNumber || this.chainDice.length === 0) return;
-
-        const score = this.chainNumber * this.chainDice.length;
-        const player = this.getCurrentPlayer();
-        player.addScore(score);
-        this.uiManager.updateScore(player.id, player.score);
-        this.uiManager.displayMessage(`${player.name} scores ${score} points!`);
-    }
-
-    endTurn() {
-        // Remember who just finished so we can evaluate end-game against them,
-        // not the next player.
-        const justFinished = this.getCurrentPlayer();
-
-        // Reset per-turn state.
-        this.diceController.resetDice();
-        this.chainNumber = null;
-        this.chainDice = [];
-        this.potentialChains = [];
-        this.newPotentialChain = null;
-        this.radiationLeakValue = null;
-        this.enhancementUsedThisTurn = false;
-        this.waitingForEnrichmentTarget = false;
-        this.uiManager.removeChainSwitchButtons();
-        this.uiManager.showEnhancementButtons(false);
-        this.uiManager.hideEnhancementPrompt();
-
-        // Trigger end-game if this player reached the target score.
-        if (!this.endGameTriggered && justFinished.score >= TARGET_SCORE) {
-            this.endGameTriggered = true;
-            this.playerWhoTriggeredEnd = justFinished.id;
-            justFinished.finalTurnTaken = true;
-            this.uiManager.displayMessage(
-                `${justFinished.name} reached ${TARGET_SCORE}! Everyone else gets one last turn.`,
-                true
-            );
-            console.log(`End-game triggered by ${justFinished.name}.`);
-        } else if (this.endGameTriggered) {
-            // Any player who finishes a turn after end-game is triggered
-            // has taken their final turn.
-            justFinished.finalTurnTaken = true;
+        bank() {
+            if (this.phase !== 'DECISION') return false;
+            this.finish(this.chainScore, 'Safely banked', this.held.length + ' × ' + this.chain + ' added to your score.');
+            return true;
         }
-
-        // If everyone has taken their final turn, wrap the game up.
-        if (this.endGameTriggered && this.players.every(p => p.finalTurnTaken)) {
-            this.determineWinner();
-            return;
+        fail() {
+            if (this.phase !== 'REVIEW') return false;
+            if (this.chain && this.matches.length) return false;
+            if (!this.chain && this.choices().length) return false;
+            this.finish(this.chain ? 0 : -10, this.chain ? 'Meltdown' : 'Radiation leak', this.chain ? 'This turn scores zero. Previously banked points are safe.' : 'Five different numbers. Lose up to 10 banked points.');
+            return true;
         }
-
-        // Advance to next player.
-        this.currentPlayerIndex = (this.currentPlayerIndex + 1) % this.playerCount;
-        this.turnNumber++;
-        if (this.currentPlayerIndex === 0) {
-            this.gameRound++;
-            console.log(`Starting Round ${this.gameRound}`);
+        canUse(type) {
+            if (!['REVIEW', 'DECISION'].includes(this.phase) || this.enhancementUsed || !this.player.tokens[type]) return false;
+            if (type === 'enrichment') return this.enrichmentOptions().length > 0;
+            if (type === 'controlRod') return this.phase === 'REVIEW' && this.chain !== null && this.matches.length === 0;
+            if (type === 'fusion') return this.chain !== null && this.alternatives.length > 0;
+            return false;
         }
-
-        const next = this.getCurrentPlayer();
-        this.uiManager.highlightActivePlayer(next.id);
-        this.uiManager.clearChainInfo();
-        this.phase = 'ROLL';
-        this.uiManager.showRollButton(true);
-        if (this.endGameTriggered && !next.finalTurnTaken) {
-            this.uiManager.displayMessage(`${next.name}'s FINAL turn — roll the dice!`);
-        } else {
-            this.uiManager.displayMessage(`${next.name}'s turn to roll the dice!`);
+        enrichmentOptions() {
+            if (this.chain) return this.available.filter(d => this.rolledIds.includes(d.id) && d.value !== this.chain).map(d => ({ id: d.id, value: this.chain }));
+            return this.available.flatMap(d => [...new Set(this.available.filter(other => other.id !== d.id && other.value !== d.value).map(other => other.value))].map(value => ({ id: d.id, value })));
         }
-    }
-
-    determineWinner() {
-        console.log("Determining Winner...");
-        this.phase = 'END';
-        let highestScore = -1;
-        let winners = [];
-
-        this.players.forEach(player => {
-            if (player.score >= TARGET_SCORE) {
-                if (player.score > highestScore) {
-                    highestScore = player.score;
-                    winners = [player];
-                } else if (player.score === highestScore) {
-                    winners.push(player);
-                }
-            } else if (highestScore < 0 && player.score > highestScore) {
-                // Case where no one reached target, but we need the highest score anyway (e.g. if fairness rule wasn't triggered but game needs to end)
-                // Or if target is low and multiple cross it, find highest overall.
-                highestScore = player.score;
-                winners = [player];
-            } else if (player.score === highestScore) {
-                winners.push(player);
+        spend(type) { this.player.tokens[type] = false; this.enhancementUsed = true; }
+        enrich(id, value) {
+            if (!this.canUse('enrichment') || !this.enrichmentOptions().some(o => o.id === id && o.value === value)) return false;
+            this.spend('enrichment');
+            this.dice[id].value = value;
+            if (this.phase === 'DECISION') {
+                this.dice[id].state = 'held';
+                this.finishIfFull();
             }
-        });
-
-        // If after checking, the highest score is still below target (unlikely with standard rules, but possible), find highest overall
-        if(highestScore < TARGET_SCORE) {
-            highestScore = -1;
-            winners = [];
-            this.players.forEach(player => {
-                if (player.score > highestScore) {
-                    highestScore = player.score;
-                    winners = [player];
-                } else if (player.score === highestScore) {
-                    winners.push(player);
-                }
-            });
+            return true;
         }
-
-        if (winners.length === 1) {
-            // Single winner
-            this.gameEndCallback({
-                winner: winners[0],
-                score: highestScore,
-                tied: false
-            });
-        } else if (winners.length > 1) {
-            // Tie condition - play extra rounds (Simplified: just declare tie for now, implementing full extra rounds is complex)
-            // TODO: Implement full tie-breaker rounds if needed. For now, declare shared win.
-            console.log("Exact tie detected! Declaring shared win (or implement tie-breaker rounds).");
-            this.gameEndCallback({
-                winners: winners,
-                score: highestScore,
-                tied: true
-            });
-            // To implement tie-breaker: Reset finalTurnTaken for tied players, set state to TIE_BREAKER, start new round only with tied players.
-        } else {
-            // Should not happen if there are players, means highestScore remained -1
-            console.error("Error determining winner - no players found or scores invalid?");
-            this.gameEndCallback({ winner: null, score: -1, error: true }); // Indicate error
+        controlRod() {
+            if (!this.canUse('controlRod')) return false;
+            this.spend('controlRod');
+            this.finish(this.beforeRollScore, 'Controlled shutdown', 'Saved the chain you held before this roll.');
+            return true;
         }
-    }
-
-    // --- Enhancement Application Callbacks (Called by EnhancementController) ---
-    applyEnrichment(targetDie) {
-        const targetIndex = targetDie.userData.id;
-        this.enhancementUsedThisTurn = true;
-
-        if (!this.chainNumber) {
-            // No chain yet (used to break a Radiation Leak). Pair the
-            // changed die with whichever active value is most common.
-            const active = this.currentRoll.filter(d => !d.setAside && d.index !== targetIndex);
-            const counts = this.countDiceValues(active);
-            const sorted = Object.entries(counts).sort(([, a], [, b]) => b - a);
-            const pairValue = sorted.length ? parseInt(sorted[0][0], 10) : active[0]?.value || 1;
-            this.diceController.setDieValue(targetIndex, pairValue);
-            const entry = this.currentRoll.find(d => d.index === targetIndex);
-            if (entry) entry.value = pairValue;
-            this.uiManager.displayMessage(`Enrichment: die changed to ${pairValue}.`);
-            this.afterRoll();
-            return;
+        fusion(value) {
+            if (!this.canUse('fusion')) return false;
+            const other = this.alternatives.find(g => g.value === value);
+            if (!other) return false;
+            const count = this.held.length + (this.phase === 'REVIEW' ? this.matches.length : 0);
+            const score = points(this.chain, count) + points(value, other.ids.length);
+            this.spend('fusion');
+            this.finish(score, 'Fusion', count + ' × ' + this.chain + ' + ' + other.ids.length + ' × ' + value + '. Both chains banked.');
+            return true;
         }
-
-        // Chain exists: convert the die to the chain number and add it.
-        this.diceController.setDieValue(targetIndex, this.chainNumber);
-        const entry = this.currentRoll.find(d => d.index === targetIndex);
-        if (entry) entry.value = this.chainNumber;
-        if (!this.chainDice.includes(targetIndex)) this.chainDice.push(targetIndex);
-        this.diceController.setDiceAside([targetIndex]);
-        this.diceController.highlightAllChainDice(this.chainDice);
-        this.uiManager.updateChainInfo(this.chainDice.length, this.chainNumber * this.chainDice.length);
-        this.uiManager.displayMessage(`Enrichment: die added to your ${this.chainNumber}s.`);
-
-        if (this.chainDice.length === 5) {
-            this.scoreChain();
-            this.endTurn();
-            return;
-        }
-        this.phase = 'DECISION';
-        this.uiManager.showTurnChoiceButtons(true);
-        this.uiManager.refreshEnhancementButtons(this);
-    }
-
-    applyControlRod() {
-        this.enhancementUsedThisTurn = true;
-        if (this.chainNumber && this.chainDice.length >= 2) {
-            this.uiManager.displayMessage("Control Rod: emergency shutdown — banking your chain.", true);
-            this.scoreChain();
-        } else {
-            this.uiManager.displayMessage("Control Rod used — but no chain to save.", true);
-        }
-        this.endTurn();
-    }
-
-    applyFusion(newSetNumber, newSetDiceIndices) {
-        this.enhancementUsedThisTurn = true;
-        const player = this.getCurrentPlayer();
-        const originalScore = (this.chainNumber || 0) * this.chainDice.length;
-        const fusionScore = newSetNumber * newSetDiceIndices.length;
-        const totalScore = originalScore + fusionScore;
-        player.addScore(totalScore);
-        this.uiManager.updateScore(player.id, player.score);
-        this.uiManager.displayMessage(
-            `Fusion! ${originalScore} + ${fusionScore} = ${totalScore} points.`, true
-        );
-        this.diceController.setDiceAside([...this.chainDice, ...newSetDiceIndices]);
-        this.endTurn();
-    }
-
-    // --- Utility & Checks ---
-
-    canPlayerAct() {
-        // Add checks: return this.gameState === 'PLAYING' && this.players[this.currentPlayerIndex].isHuman;
-        // For now, assuming human controls all players
-        return this.phase === 'DECISION' || this.phase === 'CHAIN_SELECTION' || this.phase === 'ROLL';
-    }
-
-    canSelectDie() {
-        return this.canPlayerAct() &&
-            (this.phase === 'CHAIN_SELECTION' || this.waitingForEnrichmentTarget);
-    }
-
-    canUseEnhancement(type) {
-        if (!this.canPlayerAct() || this.enhancementUsedThisTurn) return false;
-
-        const player = this.getCurrentPlayer();
-        if (!player.enhancements[type]) return false; // Already used this game
-
-        const phase = this.phase;
-
-        switch (type) {
-            case 'enrichment':
-                // Usable after any roll resolution (before bust confirmed), or during pending leak/meltdown
-                return phase === 'DECISION' || phase === 'RADIATION_LEAK_PENDING' || phase === 'CHAIN_SELECTION' ;
-            case 'controlRod':
-                // Usable *only* immediately after a roll results in a Meltdown (during MELTDOWN_CHECK)
-                return phase === 'DECISION';
-            case 'fusion':
-                // Usable after a roll (initial or extend) results in *at least two matching dice* of a *different* number than the current chain
-                if (phase !== 'DECISION' && phase !== 'CHAIN_SELECTION') return false; // Must be after a roll resolution
-                if (!this.chainNumber && phase !== 'CHAIN_SELECTION') return false; // Fusion needs an existing chain, unless it's the first roll choice
-
-                const counts = this.countDiceValues(this.currentRoll);
-                return Object.entries(counts).some(([valStr, count]) => {
-                    const val = parseInt(valStr, 10);
-                    return count >= 2 && val !== this.chainNumber;
-                });
-            default:
-                return false;
-        }
-    }
-
-    isWaitingForEnrichmentTarget() {
-        return this.waitingForEnrichmentTarget;
-    }
-
-    setWaitingForEnrichmentTarget(isWaiting, selectableDice = []) {
-        this.waitingForEnrichmentTarget = isWaiting;
-        if (isWaiting) {
-            const indices = selectableDice.map(d =>
-                typeof d === 'number' ? d : d.userData.id
-            );
-            this.diceController.highlightSelectableDiceForEnrichment(indices);
-        } else {
-            this.diceController.resetEnrichmentHighlights();
-            this.uiManager.hideEnhancementPrompt();
-        }
-    }
-
-    countDiceValues(diceResults) {
-        const counts = {};
-        for (const result of diceResults) {
-            counts[result.value] = (counts[result.value] || 0) + 1;
-        }
-        return counts;
-    }
-
-    // Add methods to handle chain switch decisions
-    handleKeepChainDecision() {
-        console.log("--- Handling Keep Chain Decision ---");
-        console.log(`   Keeping current chain: ${this.chainDice.length}x${this.chainNumber}`);
-        
-        // Player decided to keep their current chain
-        // Clear the new potential chain
-        this.newPotentialChain = null;
-        
-        // Remove the chain switch buttons
-        this.uiManager.removeChainSwitchButtons();
-        
-        // Use AssessDiceRoll to properly identify any matching dice for the existing chain
-        const allDiceValuesArray = this.currentRoll.map(die => die.value);
-        console.log(`   All dice values for post-switch assessment: ${allDiceValuesArray}`);
-        
-        const assessmentResult = AssessDiceRoll(allDiceValuesArray);
-        console.log(`   AssessDiceRoll result after keep decision: ${JSON.stringify(assessmentResult)}`);
-        
-        // Find which chain (if any) matches our current chain value
-        let chainId = 0; // 0=none, 1=Chain1, 2=Chain2
-        if (assessmentResult.Chain1Number === this.chainNumber) {
-            chainId = 1;
-        } else if (assessmentResult.Chain2Number === this.chainNumber) {
-            chainId = 2;
-        }
-        
-        console.log(`   Chain with value ${this.chainNumber} has chainId: ${chainId}`);
-        
-        if (chainId > 0) {
-            // Find dice that are part of this chain but not yet set aside
-            const matchingDice = [];
-            
-            for (let i = 0; i < 5; i++) {
-                // Check if this die belongs to our chain based on AssessDiceRoll
-                if (assessmentResult[`Die${i+1}`] === chainId) {
-                    const die = this.currentRoll[i];
-                    if (!die.setAside) {
-                        matchingDice.push(die.index);
-                    }
-                }
-            }
-            
-            if (matchingDice.length > 0) {
-                // Process as a chain extension
-                console.log(`   Found ${matchingDice.length} dice matching the current chain after assessment`);
-                this.chainDice = [...this.chainDice, ...matchingDice];
-                this.diceController.setDiceAside(matchingDice);
+        finish(score, title, detail) {
+            if (['TURN_END', 'GAME_OVER'].includes(this.phase)) return;
+            const before = this.player.score;
+            this.player.score = Math.max(0, before + score);
+            this.player.turns++;
+            this.result = { player: this.player.name, playerId: this.current, round: this.round, title, detail, points: this.player.score - before };
+            this.history.unshift({ ...this.result });
+            this.history = this.history.slice(0, 40);
+            if (this.player.score >= this.target) this.finalRound = true;
+            this.phase = 'TURN_END';
+            // Finish this round: every contender receives the same number of turns.
+            if ((this.finalRound || this.tieBreak) && this.current === this.contenders.at(-1)) {
+                const high = Math.max(...this.contenders.map(id => this.players[id].score));
+                const leaders = this.contenders.filter(id => this.players[id].score === high);
+                if (leaders.length === 1) { this.winner = leaders[0]; this.phase = 'GAME_OVER'; }
+                else { this.contenders = leaders; this.tieBreak = true; }
             }
         }
-        
-        // Ensure all chain dice have consistent highlighting
-        this.diceController.highlightAllChainDice(this.chainDice);
-        
-        // Calculate score for chain
-        const chainScore = this.chainNumber * this.chainDice.length;
-        this.uiManager.updateChainInfo(this.chainDice.length, chainScore);
-        
-        // Move to decision phase to let player decide to continue or stop
-        this.phase = 'DECISION';
-        this.uiManager.showTurnChoiceButtons(true);
-        this.uiManager.refreshEnhancementButtons(this);
-        this.uiManager.displayMessage(`Keeping your chain of ${this.chainDice.length} ${this.chainNumber}s. Continue or Stop?`);
+        nextTurn() {
+            if (this.phase !== 'TURN_END') return false;
+            const index = this.contenders.indexOf(this.current);
+            const next = index < 0 || index === this.contenders.length - 1 ? 0 : index + 1;
+            if (next === 0) this.round++;
+            this.current = this.contenders[next];
+            this.resetTurn();
+            return true;
+        }
+        rollOutlook() {
+            const count = this.available.length;
+            if (!this.chain || !count) return { survival: 0, expected: this.chainScore };
+            let survive = 0, sum = 0;
+            const total = 6 ** count;
+            for (let n = 0; n < total; n++) {
+                let code = n;
+                const values = Array.from({ length: count }, () => { const v = code % 6 + 1; code = Math.floor(code / 6); return v; });
+                const matches = values.filter(v => v === this.chain).length;
+                let best = matches ? this.chain * (this.held.length + matches) : 0;
+                for (const value of new Set(values)) {
+                    const size = values.filter(v => v === value).length;
+                    if (value !== this.chain && size >= 2) best = Math.max(best, value * size);
+                }
+                if (best > 0) survive++;
+                sum += best;
+            }
+            return { survival: survive / total, expected: sum / total };
+        }
+        survivalChance() { return this.rollOutlook().survival; }
     }
-    
-    handleSwitchChainDecision() {
-        console.log("--- Handling Switch Chain Decision ---");
-        console.log(`   Switching from chain ${this.chainDice.length}x${this.chainNumber} to new chain ${this.newPotentialChain.count}x${this.newPotentialChain.value}`);
-        
-        // Player decided to switch to the new chain
-        
-        // First, reset all dice to normal state (un-set-aside)
-        this.diceController.resetDice();
-        
-        // Update chain values
-        const oldChainNumber = this.chainNumber;
-        const oldChainLength = this.chainDice.length;
-        
-        this.chainNumber = this.newPotentialChain.value;
-        this.chainDice = [...this.newPotentialChain.diceIndices];
-        
-        // Set aside the dice in the new chain
-        this.diceController.setDiceAside(this.chainDice);
-        
-        // Ensure all chain dice have consistent highlighting
-        this.diceController.highlightAllChainDice(this.chainDice);
-        
-        // Calculate score for new chain
-        const chainScore = this.chainNumber * this.chainDice.length;
-        this.uiManager.updateChainInfo(this.chainDice.length, chainScore);
-        
-        // Remove the chain switch buttons
-        this.uiManager.removeChainSwitchButtons();
-        
-        // Clear the new potential chain
-        this.newPotentialChain = null;
-        
-        // Move to decision phase to let player decide to continue or stop
-        this.phase = 'DECISION';
-        this.uiManager.showTurnChoiceButtons(true);
-        this.uiManager.refreshEnhancementButtons(this);
-        this.uiManager.displayMessage(`Switched from ${oldChainLength}x${oldChainNumber} to ${this.chainDice.length}x${this.chainNumber}. Continue or Stop?`);
-    }
-}
-
-// Expose the class to global scope for traditional script loading
-window.GameManager = GameManager;
+    if (typeof module !== 'undefined' && module.exports) module.exports = { GameManager, groups, points };
+    else root.GameManager = GameManager;
+})(typeof window !== 'undefined' ? window : globalThis);

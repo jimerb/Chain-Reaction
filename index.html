@@ -1,118 +1,66 @@
-<!DOCTYPE html>
+<!doctype html>
 <html lang="en">
 <head>
-    <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Chain Reaction</title>
-    <link rel="preconnect" href="https://fonts.googleapis.com">
-    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-    <link href="https://fonts.googleapis.com/css2?family=Orbitron:wght@400;500;700&family=Rajdhani:wght@400;500;700&display=swap" rel="stylesheet">
-    <link rel="stylesheet" href="style.css">
-    <link rel="icon" href="data:;base64,iVBORw0KGgo="> <!-- Favicon to prevent GET error -->
-    
-    <!-- Load Three.js and related libraries directly -->
-    <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
-    <!-- Use the proper way to include OrbitControls for non-module usage -->
-    <script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/controls/OrbitControls.js"></script>
-    <script src="https://cdnjs.cloudflare.com/ajax/libs/gsap/3.9.1/gsap.min.js"></script> <!-- For animation -->
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <meta name="theme-color" content="#101b1b">
+  <title>Chain Reaction · A game of calculated risk</title>
+  <link rel="icon" href="logo.png">
+  <link rel="stylesheet" href="style.css">
+  <script defer src="gameManager.js"></script>
+  <script defer src="enhancementController.js"></script>
+  <script defer src="diceController.js"></script>
+  <script defer src="uiManager.js"></script>
+  <script defer src="main.js"></script>
 </head>
 <body>
-    <div id="game-container">
-
-        <div id="setup-screen">
-            <h1 class="game-title">CHAIN REACTION</h1>
-            <p class="game-subtitle">Nuclear Dice Challenge</p>
-            <img src="logo.png" alt="Chain Reaction Logo" id="setup-logo">
-            <div>
-                <label for="player-name">Your Name:</label>
-                <input type="text" id="player-name" value="Player 1">
-            </div>
-            <div>
-                <label for="player-count">Number of Players:</label>
-                <select id="player-count">
-                    <option value="2">2</option>
-                    <option value="3">3</option>
-                    <option value="4" selected>4</option>
-                    <option value="5">5</option>
-                    <option value="6">6</option>
-                    <option value="7">7</option>
-                    <option value="8">8</option>
-                </select>
-            </div>
-            <button id="start-game-button">Start Game</button>
-        </div>
-
-        <div id="game-screen" class="hidden">
-            <h1 class="game-title">CHAIN REACTION</h1>
-            <img src="logo.png" alt="Chain Reaction Logo" id="game-logo">
-
-            <div id="game-content-wrapper">
-                <div id="scoreboard-area">
-                    <h2>REACTOR SCORES</h2>
-                    <table id="scoreboard">
-                        <thead>
-                            <!-- Player names added dynamically -->
-                        </thead>
-                        <tbody>
-                            <!-- Scores added dynamically -->
-                        </tbody>
-                    </table>
-                    <div id="enhancements-display-area">
-                        <h3>POWER-UPS</h3>
-                        <div class="enhancement-info">
-                            <div class="enhancement-token" id="enrichment-token">E</div>
-                            <span class="enhancement-label">Enrichment: Add 1 to dice</span>
-                        </div>
-                        <div class="enhancement-info">
-                            <div class="enhancement-token" id="controlrod-token">CR</div>
-                            <span class="enhancement-label">Control Rod: Set aside non-chain dice</span>
-                        </div>
-                        <div class="enhancement-info">
-                            <div class="enhancement-token" id="fusion-token">F</div>
-                            <span class="enhancement-label">Fusion: Combine two different dice values</span>
-                        </div>
-                    </div>
-                </div>
-
-                <div id="game-main-content">
-                    <div id="threejs-canvas-container">
-                        <!-- Three.js canvas will be inserted here -->
-                    </div>
-
-                    <div id="message-area">
-                        <p id="game-message"></p>
-                        <p id="turn-info"></p>
-                        <p id="chain-info"></p>
-                    </div>
-
-                    <div id="controls-area">
-                        <button id="roll-button">Roll Dice</button>
-                        <button id="continue-button" class="hidden">Continue Rolling</button>
-                        <button id="stop-button" class="hidden">Stop & Score</button>
-
-                        <!-- Enhancement Buttons Area -->
-                        <div id="enhancement-buttons" class="enhancement-controls hidden">
-                            <p>Use Enhancement (Once per game):</p>
-                            <button id="enrichment-button" data-enhancement="enrichment" class="enhancement-button" disabled>Enrichment</button>
-                            <button id="controlrod-button" data-enhancement="controlRod" class="enhancement-button" disabled>Control Rod</button>
-                            <button id="fusion-button" data-enhancement="fusion" class="enhancement-button" disabled>Fusion</button>
-                        </div>
-                        <p id="enhancement-prompt" class="hidden"></p>
-                    </div>
-                </div>
-            </div>
-        </div>
-
-    </div>
-
-    <!-- Game Modules - Load in correct order -->
-    <script src="utils.js"></script>
-    <script src="diceLogic.js"></script>
-    <script src="uiManager.js"></script>
-    <script src="diceController.js"></script>
-    <script src="gameManager.js"></script>
-    <script src="enhancementController.js"></script>
-    <script src="main.js"></script>
-
+  <header class="masthead">
+    <a class="brand" href="./" aria-label="Chain Reaction home"><img src="logo.png" alt=""><span>CHAIN REACTION<small>A GAME OF CALCULATED RISK</small></span></a>
+    <nav aria-label="Game tools"><button id="motion-button" class="quiet" aria-pressed="false" title="Switch between full tumbling and gentle dice motion">Full rolls</button><button id="sound-button" class="quiet" aria-pressed="false">Sound off</button><button id="help-button" class="quiet">How to play <span aria-hidden="true">↗</span></button><button id="new-game-button" class="quiet" hidden>New game</button></nav>
+  </header>
+  <main>
+    <section id="setup-screen" class="setup">
+      <div class="intro"><p class="eyebrow"><span class="status-dot"></span> THE TABLE IS YOURS</p><h1>One more roll.<br><em>Everything to lose.</em></h1><p class="intro-copy">Build a chain. Read the odds. Bank your energy before the reactor melts down.</p>
+        <div id="demo-dice" class="demo-dice" aria-label="Five dice on the table"></div>
+        <div class="three-steps"><div><b>01</b><span>Find a pair</span></div><div><b>02</b><span>Build your chain</span></div><div><b>03</b><span>Know when to stop</span></div></div>
+      </div>
+      <form id="setup-form" class="setup-card"><p class="eyebrow">OPEN A TABLE</p><h2>Let's play.</h2><p class="muted">Five dice. A little nerve. Your call.</p>
+        <label for="play-mode">Who’s at the table?</label><select id="play-mode"><option value="local">Friends · pass and play</option><option value="computer">You vs. the computer</option></select>
+        <div class="form-row"><div><label for="player-count">Players</label><select id="player-count"><option>2</option><option>3</option><option>4</option><option>5</option></select></div><div><label for="target-score">Target score</label><select id="target-score"><option value="50">50 · Quick</option><option value="100" selected>100 · Standard</option><option value="200">200 · Long</option></select></div></div>
+        <div id="player-names"></div>
+        <label class="check-label"><input type="checkbox" id="use-enhancements" checked><span>Play with enhancements<small>Three one-use abilities per player.</small></span></label>
+        <button type="submit" id="start-game-button" class="primary full">Take your seats <span aria-hidden="true">→</span></button>
+        <p class="fine-print">Finish the final round. Highest score wins.</p>
+      </form>
+    </section>
+    <section id="game-screen" class="game-layout" hidden>
+      <aside class="sidebar"><div class="section-heading"><h2>The table</h2><span id="round-label" class="chip"></span></div><div id="scoreboard"></div>
+        <div class="session-goal"><span>ENERGY TARGET</span><strong id="target-label">100</strong><small>Finish the round · highest score wins</small></div>
+        <section class="log"><h3>Last at the table</h3><ol id="history"><li class="muted">The first move is yours.</li></ol></section>
+      </aside>
+      <div class="play-column">
+        <div class="turn-heading"><div><p class="eyebrow" id="turn-label">ROUND 1</p><h1 id="player-heading"></h1></div><div class="turn-total"><span>THIS CHAIN</span><strong id="chain-total">—</strong><small>unbanked energy</small></div></div>
+        <section id="tabletop" class="tabletop" aria-label="Fixed dice table">
+          <div class="table-topline"><span><i class="status-dot"></i> REACTOR ONLINE</span><span id="roll-label">READY TO ROLL</span></div>
+          <div class="table-watermark" aria-hidden="true"><span>CR</span><small>CHAIN REACTION</small></div>
+          <div class="dice-zone active-zone"><p class="zone-label" id="active-label">FIVE DICE · ONE DECISION</p><div id="active-dice" class="dice-row"></div></div>
+          <div class="held-area"><div class="dice-zone held-zone"><p class="zone-label" id="held-label">YOUR CHAIN</p><div id="held-dice" class="dice-row small-dice"></div></div></div>
+          <div class="table-footline"><span id="table-note">Dice stay on the table. You decide how far to go.</span><span aria-hidden="true">◆ ◆ ◆</span></div>
+        </section>
+        <section class="decision-panel" aria-labelledby="decision-title"><div class="decision-copy" aria-live="polite" aria-atomic="true"><p class="eyebrow" id="decision-kicker">YOUR MOVE</p><h2 id="decision-title"></h2><p id="decision-detail"></p></div><div id="choices" class="choices"></div><div id="actions" class="actions"></div><p id="risk-note" class="risk-note"></p></section>
+        <section id="enhancement-panel" class="enhancement-panel" aria-label="Enhancements"><div class="section-heading"><h3>Your enhancements</h3><span>ONCE EACH · ONE PER ROLL</span></div><div id="enhancements" class="enhancements"></div><div id="enhancement-picker" class="enhancement-picker" hidden></div></section>
+        <p id="storage-notice" class="fine-print" hidden></p>
+      </div>
+    </section>
+  </main>
+  <footer><span>CHAIN REACTION</span><span>Fortune favors the calculated.</span></footer>
+  <dialog id="rules-dialog"><div class="dialog-top"><p class="eyebrow">THE OPERATOR’S HANDBOOK</p><button id="close-rules" class="quiet" aria-label="Close rules">Close ×</button></div><h2>Good rolls. Better decisions.</h2>
+    <p>Roll five dice. Choose <strong>any matching group of two or more</strong> as your chain. Bank <strong>face value × dice count</strong>, or roll the remaining dice to grow it.</p>
+    <ol class="rules-steps"><li><strong>Choose your pairing.</strong> On 2, 2, 2, 6, 6, you can take three 2s for 6 points or two 6s for 12. Neither group is selected for you.</li><li><strong>Keep or switch.</strong> A later roll can extend your chain, create a different pair, or do both. Choose which to keep. Switching gives up the old chain's points and returns its dice to the rolling pool. Keep the new chain and choose whether to bank or roll the other dice again.</li><li><strong>A miss is a real risk.</strong> Without a matching die, you must switch to a new pair, use a legal enhancement, or accept a meltdown. You cannot bank the old chain after a miss just by choosing “keep.”</li><li><strong>Know the endings.</strong> A meltdown scores zero for this turn. Five different dice on the opening roll cost 10 points, with a floor of zero. Five matching dice automatically score and end your turn. Switching to a new pair or triple keeps your turn going.</li></ol>
+    <h3>Three ways to change your luck</h3><p><strong>Enrichment</strong> changes one available die to your chain value. Before choosing an opening chain, choose the die and an existing face value to form or improve a pair.</p><p><strong>Control Rod</strong> banks your pre-roll chain after a roll with no matching dice. It ends your turn.</p><p><strong>Fusion</strong> banks your current chain (including new matching dice) plus a different newly rolled pair. It ends your turn. On an opening split, select a chain first, then fuse the other pair.</p><p>Each ability is once per player per game. Only one ability per roll. Choose or use an ability before rolling again or ending the turn.</p>
+    <h3>The final round</h3><p>When someone reaches the target, finish the current round so everyone has equal turns. Highest score wins. Tied leaders alone play extra full rounds until one leads. No extra tokens.</p>
+    <h3>Read the risk</h3><p>The survival percentage includes either matching your chain or rolling a replacement pair; it excludes enhancements. Surviving by switching can still reduce your points. With linear scoring, banking is often the strongest choice, especially with just one die left.</p>
+  </dialog>
+  <dialog id="restart-dialog"><h2>Open a new table?</h2><p>Your current game will be replaced.</p><div class="actions"><button id="cancel-restart" class="secondary">Keep playing</button><button id="confirm-restart" class="primary">New table</button></div></dialog>
 </body>
 </html>

@@ -1,642 +1,139 @@
-// diceController.js
-// Using globally loaded THREE from script tag
-// Using globally loaded gsap from script tag
-// Using globally loaded utility functions
-
-const DICE_SIZE = 1.5; // Increased dice size
-const TABLE_WIDTH = 24; // Wider table
-const TABLE_DEPTH = 16; // Less deep table
-const DICE_POSITIONS = [ // Initial spread-out positions for dice
-    new THREE.Vector3(-8, DICE_SIZE / 2 + 0.1, 0),
-    new THREE.Vector3(-4, DICE_SIZE / 2 + 0.1, 0),
-    new THREE.Vector3(0, DICE_SIZE / 2 + 0.1, 0),
-    new THREE.Vector3(4, DICE_SIZE / 2 + 0.1, 0),
-    new THREE.Vector3(8, DICE_SIZE / 2 + 0.1, 0),
-];
-
-class DiceController {
-    constructor(scene, interactionObjects) {
-        this.scene = scene;
-        this.interactionObjects = interactionObjects;
-        this.dice = [];
-        this.table = null;
-        this.diceValues = [];
-        this.enhancementTokens = {};
-        
-        // Materials and textures
-        this.diceMaterials = this.createDiceMaterials();
-    }
-    
-    createDiceMaterials() {
-        // BoxGeometry material order is [+X, -X, +Y, -Y, +Z, -Z].
-        // Lay out the die so opposite faces sum to 7 (standard die).
-        // This ordering must stay in sync with getDiceValueFromRotation in utils.js.
-        const faceValuesInGeometryOrder = [1, 6, 2, 5, 3, 4];
-        return faceValuesInGeometryOrder.map(value => {
-            return new THREE.MeshStandardMaterial({
-                map: createDiceTexture(value),
-                color: 0xffffff,
-                roughness: 0.2,
-                metalness: 0.5,
-                emissive: 0x222222,
-                emissiveIntensity: 0.1
+/* Lightweight CSS dice: outcomes are selected by the engine, never inferred from animation. */
+(function (root) {
+    const PIPS = { 1: [5], 2: [1, 9], 3: [1, 5, 9], 4: [1, 3, 7, 9], 5: [1, 3, 5, 7, 9], 6: [1, 3, 4, 6, 7, 9] };
+    // For each front face, choose adjacent top/right faces of a right-handed die.
+    const ADJACENT = { 1: [2, 3], 2: [6, 3], 3: [2, 6], 4: [2, 1], 5: [1, 3], 6: [5, 3] };
+    function makeDie(value, id, state = 'active', showValue = true) {
+        const wrap = document.createElement('div');
+        wrap.className = 'die-wrap ' + state;
+        wrap.dataset.dieId = id;
+        wrap.setAttribute('role', 'img');
+        wrap.setAttribute('aria-label', 'Die ' + (id + 1) + ': ' + value + ', ' + state);
+        const cube = document.createElement('div');
+        cube.className = 'die';
+        const [right, front] = ADJACENT[value];
+        // The score is on the upward-facing surface, as on a real table.
+        [front, right, value, 7 - value, 7 - right, 7 - front].forEach(faceValue => {
+            const face = document.createElement('div');
+            face.className = 'die-face';
+            PIPS[faceValue].forEach(pos => {
+                const pip = document.createElement('span');
+                pip.className = 'pip';
+                pip.style.gridArea = Math.ceil(pos / 3) + ' / ' + ((pos - 1) % 3 + 1);
+                face.append(pip);
             });
+            cube.append(face);
         });
+        const tilt = ((id * 7) % 13) - 6;
+        cube.style.transform = 'rotateX(-58deg) rotateY(12deg) rotateZ(' + tilt + 'deg)';
+        const shadow = document.createElement('span'); shadow.className = 'die-shadow';
+        wrap.append(shadow, cube);
+        if (showValue) { const label = document.createElement('span'); label.className = 'die-value'; label.textContent = '#' + (id + 1) + ' · ' + value; wrap.append(label); }
+        return wrap;
     }
-    
-    createTable() {
-        // Create a rectangular table surface with a reactor-themed look
-        const tableGeometry = new THREE.BoxGeometry(TABLE_WIDTH, 0.5, TABLE_DEPTH);
-        const tableMaterial = new THREE.MeshStandardMaterial({ 
-            color: 0x1e3b1e, // Dark reactor green
-            roughness: 0.6,
-            metalness: 0.3,
-            emissive: 0x0a1f0a, // Subtle glow
-            emissiveIntensity: 0.2
-        });
-        
-        this.table = new THREE.Mesh(tableGeometry, tableMaterial);
-        this.table.position.y = -0.25; // Half height below origin
-        this.table.receiveShadow = true;
-        
-        this.scene.add(this.table);
-        
-        // Add grid pattern to table for reactor feel
-        const gridHelper = new THREE.GridHelper(Math.min(TABLE_WIDTH, TABLE_DEPTH) * 0.8, 10, 0x10ff00, 0x003300);
-        gridHelper.position.y = 0.01; // Just above table
-        gridHelper.material.opacity = 0.15;
-        gridHelper.material.transparent = true;
-        this.scene.add(gridHelper);
-        
-        // Add a thicker, more visible rim around the table
-        const rimGeometryLong = new THREE.BoxGeometry(TABLE_WIDTH + 1, 0.8, 0.8);
-        const rimGeometryShort = new THREE.BoxGeometry(TABLE_DEPTH + 1, 0.8, 0.8);
-        const rimMaterial = new THREE.MeshStandardMaterial({ 
-            color: 0x3d2817, // Darker brown for wooden rim
-            roughness: 0.7,
-            metalness: 0.2,
-            emissive: 0x1f140b, // Subtle glow
-            emissiveIntensity: 0.1
-        });
-        
-        // Four sides of the rim
-        const edges = [
-            { position: new THREE.Vector3(0, 0, TABLE_DEPTH/2 + 0.4), rotation: new THREE.Euler(0, 0, 0), geometry: rimGeometryLong },
-            { position: new THREE.Vector3(0, 0, -TABLE_DEPTH/2 - 0.4), rotation: new THREE.Euler(0, 0, 0), geometry: rimGeometryLong },
-            { position: new THREE.Vector3(TABLE_WIDTH/2 + 0.4, 0, 0), rotation: new THREE.Euler(0, Math.PI/2, 0), geometry: rimGeometryShort },
-            { position: new THREE.Vector3(-TABLE_WIDTH/2 - 0.4, 0, 0), rotation: new THREE.Euler(0, Math.PI/2, 0), geometry: rimGeometryShort }
-        ];
-        
-        edges.forEach(edge => {
-            const rim = new THREE.Mesh(edge.geometry, rimMaterial);
-            rim.position.copy(edge.position);
-            rim.rotation.copy(edge.rotation);
-            rim.position.y = 0.15; // Slightly above table
-            rim.castShadow = true;
-            rim.receiveShadow = true;
-            this.scene.add(rim);
-        });
-        
-        // Add corner pieces to the table
-        const cornerGeometry = new THREE.BoxGeometry(0.8, 0.8, 0.8);
-        const cornerMaterial = rimMaterial.clone();
-        
-        const corners = [
-            { x: TABLE_WIDTH/2 + 0.4, z: TABLE_DEPTH/2 + 0.4 },
-            { x: -TABLE_WIDTH/2 - 0.4, z: TABLE_DEPTH/2 + 0.4 },
-            { x: TABLE_WIDTH/2 + 0.4, z: -TABLE_DEPTH/2 - 0.4 },
-            { x: -TABLE_WIDTH/2 - 0.4, z: -TABLE_DEPTH/2 - 0.4 }
-        ];
-        
-        corners.forEach(corner => {
-            const cornerPiece = new THREE.Mesh(cornerGeometry, cornerMaterial);
-            cornerPiece.position.set(corner.x, 0.15, corner.z);
-            cornerPiece.castShadow = true;
-            cornerPiece.receiveShadow = true;
-            this.scene.add(cornerPiece);
-        });
-        
-        // Add subtle ambient light to the table
-        const tableLight = new THREE.PointLight(0x10ff00, 1, 25);
-        tableLight.position.set(0, 5, 0);
-        tableLight.intensity = 0.2;
-        this.scene.add(tableLight);
-    }
-    
-    createDice(count = 5) {
-        // Create dice with beveled edges for a more realistic look
-        const diceGeometry = new THREE.BoxGeometry(DICE_SIZE, DICE_SIZE, DICE_SIZE, 2, 2, 2);
-        
-        // Create dice with proper material for each face
-        for (let i = 0; i < count; i++) {
-            const diceMesh = new THREE.Mesh(diceGeometry);
-
-            // Apply materials to each face of the die
-            diceMesh.material = this.diceMaterials;
-
-            // Apply yaw before the face rotation so spinning around the
-            // vertical never flips which face is up. See utils.js.
-            diceMesh.rotation.order = 'YXZ';
-
-            // Position dice in their starting positions
-            const position = DICE_POSITIONS[i % DICE_POSITIONS.length].clone();
-            diceMesh.position.copy(position);
-            
-            // Add user data for raycasting and game logic
-            diceMesh.userData = {
-                id: i,
-                type: 'die',
-                isInteractable: true,
-                isRolling: false,
-                isSetAside: false
-            };
-            
-            // Enable shadows
-            diceMesh.castShadow = true;
-            diceMesh.receiveShadow = true;
-            
-            // Add to scene and tracking arrays
-            this.scene.add(diceMesh);
-            this.dice.push(diceMesh);
-            this.interactionObjects.push(diceMesh);
+    class DiceController {
+        constructor() { this.sound = false; this.audio = null; this.gentleMotion = false; }
+        async unlockAudio() {
+            if (!this.sound) return;
+            try {
+                if (!this.audio) this.audio = new (window.AudioContext || window.webkitAudioContext)();
+                if (this.audio.state === 'suspended') await this.audio.resume();
+            } catch { this.sound = false; }
+        }
+        clatter(landings) {
+            if (!this.sound || !this.audio || this.audio.state !== 'running') return;
+            const ctx = this.audio;
+            for (const { time, strength } of landings) {
+                const start = ctx.currentTime + time / 1000;
+                const buffer = ctx.createBuffer(1, Math.floor(ctx.sampleRate * .05), ctx.sampleRate);
+                const data = buffer.getChannelData(0);
+                for (let j = 0; j < data.length; j++) data[j] = (Math.random() * 2 - 1) * Math.exp(-j / (ctx.sampleRate * .009));
+                const source = ctx.createBufferSource();
+                source.buffer = buffer;
+                const filter = ctx.createBiquadFilter();
+                filter.type = 'bandpass'; filter.frequency.value = 650 + Math.random() * 1500; filter.Q.value = .7;
+                const gain = ctx.createGain(); gain.gain.value = .1 * strength;
+                source.connect(filter).connect(gain).connect(ctx.destination);
+                source.start(start);
+                source.onended = () => { source.disconnect(); filter.disconnect(); gain.disconnect(); };
+            }
+        }
+        render(game) {
+            const targets = { active: document.getElementById('active-dice'), held: document.getElementById('held-dice') };
+            Object.values(targets).forEach(el => el.replaceChildren());
+            game.dice.forEach(d => targets[d.state].append(makeDie(d.value, d.id, d.state)));
+            if (!game.held.length) { const empty = document.createElement('p'); empty.className = 'empty-zone'; empty.textContent = 'Your chosen dice will rest here'; targets.held.append(empty); }
+            if (!game.available.length) { const empty = document.createElement('p'); empty.className = 'empty-zone'; empty.textContent = 'All dice resolved'; targets.active.append(empty); }
+        }
+        async animate(game, ids) {
+            const gentle = this.gentleMotion;
+            // Show the freshly rolled dice in the rolling area until they have landed.
+            this.render({ ...game, dice: game.dice.map(d => ids.includes(d.id) ? { ...d, state: 'active' } : d),
+                held: game.held.filter(d => !ids.includes(d.id)), available: ids.map(id => game.dice[id]) });
+            const row = document.getElementById('active-dice');
+            const bounds = row.getBoundingClientRect();
+            const direction = game.rollNumber % 2 ? 1 : -1;
+            // Keep dice in parallel lanes: opposite starting directions make them
+            // pass through one another. The narrowest lane bounds the whole toss.
+            const room = Math.min(...ids.map(id => {
+                const rect = row.querySelector('[data-die-id="' + id + '"]').getBoundingClientRect();
+                return Math.max(0, direction > 0 ? bounds.right - rect.right - 18 : rect.left - bounds.left - 18);
+            }));
+            const distance = gentle ? Math.min(10, room) : Math.min(200, room * .85);
+            const landings = [];
+            const animations = ids.map((id, index) => {
+                const wrap = document.querySelector('#active-dice [data-die-id="' + id + '"]');
+                if (!wrap) return Promise.resolve();
+                wrap.classList.add('rolling');
+                const cube = wrap.querySelector('.die');
+                const end = cube.style.transform;
+                const duration = gentle ? 620 : 1550 + index * 115;
+                const tilt = ((id * 7) % 13) - 6;
+                const extraSpin = id % 2 ? 360 : 0;
+                // Movement across the felt and rotation use separate elements so the dice
+                // translate in table coordinates while tumbling on all three axes.
+                const path = gentle ? [
+                    { transform: 'translate(0,0)', offset: 0 },
+                    { transform: 'translate(' + direction * distance + 'px,-4px)', offset: .35 },
+                    { transform: 'translate(0,0)', offset: 1 }
+                ] : [
+                    { transform: 'translate(' + direction * distance + 'px,-18px)', offset: 0 },
+                    { transform: 'translate(' + direction * distance * .72 + 'px,-57px)', offset: .18 },
+                    { transform: 'translate(' + direction * distance * .45 + 'px,0)', offset: .38 },
+                    { transform: 'translate(' + direction * distance * .27 + 'px,-25px)', offset: .52 },
+                    { transform: 'translate(' + direction * distance * .12 + 'px,0)', offset: .67 },
+                    { transform: 'translate(' + direction * distance * .05 + 'px,-9px)', offset: .78 },
+                    { transform: 'translate(' + direction * distance * .02 + 'px,0)', offset: .88 },
+                    { transform: 'translate(0,0)', offset: 1 }
+                ];
+                const spin = gentle ? [{ transform: end }, { transform: end }] : [
+                    { transform: 'rotateX(' + (1022 + extraSpin) + 'deg) rotateY(732deg) rotateZ(' + (tilt + 540) + 'deg)', offset: 0 },
+                    { transform: 'rotateX(' + (536 + extraSpin / 2) + 'deg) rotateY(372deg) rotateZ(' + (tilt + 260) + 'deg)', offset: .38 },
+                    { transform: 'rotateX(160deg) rotateY(126deg) rotateZ(' + (tilt + 75) + 'deg)', offset: .67 },
+                    { transform: 'rotateX(-67deg) rotateY(18deg) rotateZ(' + (tilt - 7) + 'deg)', offset: .88 },
+                    { transform: 'rotateX(-54deg) rotateY(10deg) rotateZ(' + (tilt + 3) + 'deg)', offset: .94 },
+                    { transform: end, offset: 1 }
+                ];
+                (gentle ? [.8] : [.38, .67, .88]).forEach((fraction, bounce) => landings.push({ time: duration * fraction, strength: 1 / (bounce + 1) / Math.sqrt(ids.length) }));
+                const travel = wrap.animate(path, { duration, easing: 'linear' });
+                const tumble = cube.animate(spin, { duration, easing: 'linear' });
+                const shadow = wrap.querySelector('.die-shadow').animate(gentle ? [
+                    { opacity: .7 }, { opacity: .7 }
+                ] : [
+                    { transform: 'translateY(18px) scale(1.1)', opacity: .5, offset: 0 },
+                    { transform: 'translateY(57px) scale(1.45)', opacity: .23, offset: .18 },
+                    { transform: 'translateY(0) scale(1)', opacity: .8, offset: .38 },
+                    { transform: 'translateY(25px) scale(1.2)', opacity: .4, offset: .52 },
+                    { transform: 'translateY(0) scale(1)', opacity: .8, offset: .67 },
+                    { transform: 'translateY(9px) scale(1.08)', opacity: .6, offset: .78 },
+                    { transform: 'translateY(0) scale(1)', opacity: .8, offset: 1 }
+                ], { duration, easing: 'linear' });
+                return Promise.all([travel.finished, tumble.finished, shadow.finished]).catch(() => {});
+            });
+            this.clatter(landings);
+            await Promise.all(animations);
         }
     }
-    
-    rollDice(activeIndices = null) {
-        if (!activeIndices) {
-            activeIndices = Array.from({ length: this.dice.length }, (_, i) => i);
-        }
-        console.log("Rolling dice with indices:", activeIndices);
-
-        const tableWidth = TABLE_WIDTH * 0.8;
-        const tableDepth = TABLE_DEPTH * 0.7;
-
-        const rollPromises = activeIndices.map((index, i) => {
-            const die = this.dice[index];
-            die.userData.isRolling = true;
-
-            // Pick the final value uniformly and pre-compute the rotation that
-            // puts that face up. This guarantees displayed value == reported value.
-            const finalValue = 1 + Math.floor(Math.random() * 6);
-            const targetEuler = getRotationForValue(finalValue);
-
-            // Spread dice across the top portion of the table so set-aside
-            // dice (bottom row) have room.
-            const padding = DICE_SIZE * 1.2;
-            const xSpan = tableWidth - padding * 2;
-            const zMin = -tableDepth / 2 + padding;
-            const zMax = tableDepth / 2 - DICE_SIZE * 3;
-            const targetX = (Math.random() * xSpan) - xSpan / 2;
-            const targetZ = zMin + Math.random() * Math.max(0.1, zMax - zMin);
-
-            // Accumulate spin distance so the die visibly tumbles, then lands
-            // on the chosen orientation.
-            const spinTurnsX = Math.floor(2 + Math.random() * 3);
-            const spinTurnsZ = Math.floor(2 + Math.random() * 3);
-
-            return new Promise(resolve => {
-                const tl = gsap.timeline({
-                    onComplete: () => {
-                        die.userData.isRolling = false;
-                        die.userData.finalValue = finalValue;
-                        // Sanity check: quaternion-derived value should match
-                        // the chosen final value. Log if not.
-                        const observed = getDiceValueFromRotation(die.quaternion);
-                        if (observed !== finalValue) {
-                            console.warn(`Die ${index}: chosen ${finalValue}, read ${observed}`);
-                        } else {
-                            console.log(`Die ${index} settled with value: ${finalValue}`);
-                        }
-                        resolve(die);
-                    }
-                });
-
-                // Hop up, tumble toward the target orientation, land.
-                tl.to(die.position, {
-                    x: targetX,
-                    y: DICE_SIZE * 2.2,
-                    z: targetZ,
-                    duration: 0.35,
-                    ease: "power2.out"
-                }, 0);
-                tl.to(die.rotation, {
-                    x: targetEuler.x + Math.PI * 2 * spinTurnsX,
-                    y: targetEuler.y + Math.PI * 2,
-                    z: targetEuler.z + Math.PI * 2 * spinTurnsZ,
-                    duration: 0.75,
-                    ease: "power2.out"
-                }, 0);
-                tl.to(die.position, {
-                    y: DICE_SIZE / 2 + 0.1,
-                    duration: 0.4,
-                    ease: "bounce.out"
-                }, 0.35);
-                // Snap final rotation precisely so readback matches chosen value.
-                tl.call(() => {
-                    die.rotation.set(targetEuler.x, targetEuler.y, targetEuler.z);
-                });
-            });
-        });
-
-        return Promise.all(rollPromises);
-    }
-    
-    getDiceValues() {
-        console.log("Reading final dice values...");
-        
-        // Get the actual values from the dice, using their stored final values when available
-        const diceValues = this.dice.map((die, index) => {
-            // Use the stored final value if available, otherwise calculate from current rotation
-            const value = die.userData.finalValue || getDiceValueFromRotation(die.quaternion);
-            
-            console.log(`Die ${index}: value = ${value}, setAside = ${die.userData.isSetAside}`);
-            
-            return { 
-                index, 
-                value,
-                setAside: die.userData.isSetAside
-            };
-        });
-        
-        console.log("All dice values:", diceValues);
-        return diceValues;
-    }
-    
-    // Resets the appearance of dice that are NOT set aside
-    resetDiceAppearance() {
-        console.log("--- Resetting Dice Appearance (Non-Set-Aside Only) ---");
-        this.dice.forEach(die => {
-            if (!die.userData.isSetAside) {
-                // Restore default material (removes highlights)
-                die.material = this.diceMaterials;
-                console.log(`   Reset appearance for Die ${die.userData.id}`);
-            } else {
-                console.log(`   Skipping appearance reset for Set Aside Die ${die.userData.id}`);
-            }
-        });
-        console.log("--- Finished Resetting Dice Appearance ---");
-    }
-
-    resetDice() {
-        console.log("DiceController: Resetting all dice positions and states.");
-        this.dice.forEach((die, index) => {
-            // Reset position to initial
-            if (index < DICE_POSITIONS.length) {
-                 die.position.copy(DICE_POSITIONS[index]);
-            } else {
-                 // Fallback if more dice than defined positions (shouldn't happen with 5)
-                 die.position.set(0, DICE_SIZE / 2 + 0.1, 0);
-            }
-            die.rotation.set(0, 0, 0); // Reset rotation (face 2 up)
-            die.userData.isRolling = false;
-            die.userData.isSetAside = false;
-            die.userData.value = undefined;
-            die.userData.finalValue = 2; // Match the reset rotation.
-            die.visible = true; // Ensure dice are visible
-            // No physics engine currently, so no need to reset physics state
-        });
-        this.diceValues = []; // Clear cached values
-        this.unhighlightDice(); // Remove any leftover highlights
-    }
-
-    // Method to highlight all validated potential chains simultaneously
-    highlightAllPotentialChains(validatedChains) {
-        console.log("--- Highlighting All Potential Chains --- Input (Validated):", JSON.stringify(validatedChains));
-        
-        // 1. Reset appearance of all non-set-aside dice first
-        this.resetDiceAppearance(); 
-        
-        // 2. Define colors
-        const chainColors = [
-            new THREE.Color(0x10ff00), // Green
-            new THREE.Color(0x00ffff), // Cyan
-            new THREE.Color(0xffff00), // Yellow
-            new THREE.Color(0xff00ff), // Magenta
-            new THREE.Color(0xffa500)  // Orange 
-        ];
-        
-        // 3. Highlight each validated chain with a distinct color
-        if (!validatedChains || validatedChains.length === 0) {
-             console.log("   No validated chains to highlight. Skipping highlight loop.");
-        } else {
-            validatedChains.forEach((chain, chainIndex) => {
-                const color = chainColors[chainIndex % chainColors.length];
-                console.log(`   Highlighting Chain ${chainIndex}: Value=${chain.value}, Color=${color.getHexString()}, Indices=${JSON.stringify(chain.diceIndices)}`);
-                
-                if (!chain.diceIndices || chain.diceIndices.length === 0) {
-                    console.warn(`    Chain ${chainIndex} has no dice indices. Skipping.`);
-                    return; // Skip to next chain
-                }
-
-                chain.diceIndices.forEach(dieIndex => {
-                    console.log(`    Attempting to highlight Die Index: ${dieIndex}`);
-                    if (dieIndex >= 0 && dieIndex < this.dice.length) {
-                        const die = this.dice[dieIndex];
-                        console.log(`     Found Die Object: ID=${die.userData.id}, isSetAside=${die.userData.isSetAside}`);
-                        
-                        if (die.userData.isSetAside) {
-                            console.warn(`     Skipping highlight for Die ${dieIndex} because it is already set aside.`);
-                            return; // Skip to next die index
-                        }
-                        
-                        try {
-                            // Clone materials for highlighting
-                            const highlightMaterials = this.diceMaterials.map(mat => mat.clone());
-                            console.log(`      Cloned ${highlightMaterials.length} base materials for Die ${dieIndex}.`);
-                            
-                            highlightMaterials.forEach((mat, matIndex) => {
-                                mat.emissive = color;
-                                mat.emissiveIntensity = 0.6; 
-                                console.log(`       Set emissive color/intensity for material ${matIndex}`);
-                            });
-                            
-                            die.material = highlightMaterials; 
-                            console.log(`      SUCCESS: Assigned highlighted materials to Die ${dieIndex}.`);
-                        } catch (error) {
-                            console.error(`      ERROR applying highlight to Die ${dieIndex}:`, error);
-                        }
-                    } else {
-                         console.error(`     ERROR: Invalid die index ${dieIndex} encountered.`);
-                    }
-                }); // End loop through dice indices for one chain
-            }); // End loop through all chains
-        }
-        console.log("--- Finished Highlighting All Potential Chains ---");
-    }
-    
-    // Sets dice aside visually and logically
-    setDiceAside(diceIndices) {
-        console.log("--- Setting Dice Aside --- Indices:", JSON.stringify(diceIndices));
-        
-        diceIndices.forEach((index, i) => {
-            if (index >= 0 && index < this.dice.length) {
-                const die = this.dice[index];
-                
-                // Mark logically as set aside
-                die.userData.isSetAside = true;
-                die.userData.isRolling = false; // Ensure it stops any residual rolling state
-                console.log(`   Marked Die ${index} as setAside.`);
-
-                // Move visually to the side area
-                // Calculate target position based on how many are already there
-                const asideIndex = this.dice.filter(d => d.userData.isSetAside).length - 1; // 0-based index of this die among those set aside
-                
-                // Position at the BOTTOM of the table instead of left side
-                // Using negative Z values to place at the bottom
-                const targetX = (asideIndex * (DICE_SIZE * 1.2)) - ((diceIndices.length - 1) * DICE_SIZE * 0.6); // Center the group
-                const targetZ = TABLE_DEPTH / 2 - DICE_SIZE * 1.5; // Bottom of table with margin
-                
-                console.log(`   Moving Die ${index} to aside position: X=${targetX.toFixed(2)}, Z=${targetZ.toFixed(2)}`);
-                gsap.to(die.position, {
-                    x: targetX,
-                    y: DICE_SIZE / 2 + 0.1, // Keep it flat on the ground
-                    z: targetZ,
-                    duration: 0.8,
-                    ease: "power2.out"
-                });
-                
-                // Optional: Keep highlight briefly? Or remove it now?
-                // For now, let's keep the highlight until the next resetDiceAppearance call.
-                // die.material = this.diceMaterials; // Uncomment to remove highlight immediately
-
-            } else {
-                console.error(`   Invalid index ${index} passed to setDiceAside.`);
-            }
-        });
-        console.log("--- Finished Setting Dice Aside ---");
-    }
-
-    // Resets dice state for a new turn or roll (position, flags, NOT appearance)
-    resetDiceState() {
-        console.log("--- Resetting Dice State (Position & Flags) ---");
-        this.dice.forEach(die => {
-            die.userData.isSetAside = false;
-            die.userData.isRolling = false;
-            die.userData.finalValue = null; // Clear final value
-            
-            // Reset position to starting grid
-            const startPos = DICE_POSITIONS[die.userData.id % DICE_POSITIONS.length];
-            console.log(`   Resetting Die ${die.userData.id} to position X=${startPos.x}, Z=${startPos.z}`);
-            gsap.to(die.position, {
-                x: startPos.x,
-                y: DICE_SIZE / 2 + 0.1,
-                z: startPos.z,
-                duration: 0.5,
-                ease: "power1.out"
-            });
-            gsap.to(die.rotation, { x: 0, y: 0, z: 0, duration: 0.5 });
-        });
-        console.log("--- Finished Resetting Dice State ---");
-    }
-    
-    // --- Enhancement Token Management ---
-    
-    // Creates visual tokens for player enhancements
-    createEnhancementTokens(players, interactionObjects) {
-        console.log("--- Creating Enhancement Tokens ---");
-        this.enhancementTokens = {}; // Reset token tracking
-        
-        const tokenGeometry = new THREE.CylinderGeometry(0.6, 0.6, 0.1, 24); // Slightly smaller tokens
-        const tokenSpacing = 1.5;
-        const playerGroupSpacing = 4.0;
-        const tokenRowZ = -TABLE_DEPTH / 2 + 1.5; // Positioned near the front edge
-
-        // Calculate starting position to center the tokens approximately
-        const totalWidth = (players.length -1) * playerGroupSpacing + (Object.keys(players[0].enhancements).length) * tokenSpacing;
-        let startX = -totalWidth / 2;
-
-        players.forEach((player, playerIndex) => {
-            this.enhancementTokens[player.id] = {};
-            console.log(` Creating tokens for Player ${player.id} (${player.name})`);
-
-            let currentTokenX = startX + playerIndex * playerGroupSpacing;
-
-            Object.entries(player.enhancements).forEach(([type, isAvailable], tokenIndex) => {
-                 console.log(`   - Token Type: ${type}, Available: ${isAvailable}`);
-                const texture = createTokenTexture(type, isAvailable ? 'available' : 'used'); // Assumes createTokenTexture exists globally or is imported
-                const tokenMaterial = new THREE.MeshStandardMaterial({
-                    map: texture,
-                    roughness: 0.4,
-                    metalness: 0.6
-                });
-
-                const token = new THREE.Mesh(tokenGeometry, tokenMaterial);
-                token.rotation.x = Math.PI / 2; // Lay flat
-                token.position.set(currentTokenX, 0.1, tokenRowZ);
-
-                token.userData = {
-                    type: 'enhancementToken',
-                    enhancementType: type,
-                    playerId: player.id,
-                    isInteractable: isAvailable,
-                    isAvailable: isAvailable
-                };
-
-                token.castShadow = true;
-                token.receiveShadow = false; // Tokens probably don't need to receive shadows
-
-                this.scene.add(token);
-                this.enhancementTokens[player.id][type] = token;
-                console.log(`     Token created at X=${currentTokenX.toFixed(2)}`);
-
-                // Add to interaction objects ONLY if it's available
-                if (isAvailable) {
-                    interactionObjects.push(token);
-                    console.log(`     Added token ${type} for player ${player.id} to interactables.`);
-                }
-                
-                currentTokenX += tokenSpacing; // Move to the next token position within the player group
-            });
-        });
-        console.log("--- Finished Creating Enhancement Tokens ---");
-    }
-
-    // Updates the visual state (texture) of a specific token
-    updateTokenVisual(playerId, type, newState = 'used') {
-        const token = this.enhancementTokens?.[playerId]?.[type];
-        if (!token) return;
-        
-        // Update texture based on new state
-        const newTexture = createTokenTexture(type, newState);
-        token.material.map = newTexture;
-        token.material.needsUpdate = true;
-        
-        // Update interaction status
-        token.userData.isInteractable = (newState === 'available');
-        token.userData.isAvailable = (newState === 'available');
-        
-        // Visual feedback - flip token animation
-        gsap.to(token.rotation, {
-            z: token.rotation.z + Math.PI * 2, // Full flip
-            duration: 1,
-            ease: "power1.out"
-        });
-        
-        // If used, change the appearance (greyed out)
-        if (newState === 'used') {
-            token.material.color.setRGB(0.7, 0.7, 0.7); // Grey tint
-            
-            // Remove from interaction objects if it was there
-            const index = this.interactionObjects.indexOf(token);
-            if (index !== -1) {
-                this.interactionObjects.splice(index, 1);
-            }
-        } else {
-            token.material.color.setRGB(1, 1, 1); // Reset to normal
-        }
-    }
-    
-    // For Enrichment enhancement visualization
-    highlightSelectableDiceForEnrichment(diceIndices) {
-        diceIndices.forEach(index => {
-            const die = this.dice[index];
-            // Clone materials to avoid affecting other dice
-            const highlightMaterials = this.diceMaterials.map(mat => mat.clone());
-            
-            // Apply highlight
-            highlightMaterials.forEach(mat => {
-                mat.emissive = new THREE.Color(0x00ffff); // Cyan glow for enrichment target
-                mat.emissiveIntensity = 0.7;
-            });
-            
-            die.material = highlightMaterials;
-            
-            // Temporarily make it a special interactable type
-            die.userData.originalType = die.userData.type;
-            die.userData.type = 'selectableDieForEnrichment';
-        });
-    }
-    
-    resetEnrichmentHighlights() {
-        this.dice.forEach(die => {
-            // Reset material
-            die.material = this.diceMaterials;
-            
-            // Reset type if it was changed
-            if (die.userData.originalType) {
-                die.userData.type = die.userData.originalType;
-                delete die.userData.originalType;
-            }
-        });
-    }
-    
-    highlightDiceForChain(chainValue, diceIndices, color = new THREE.Color(0x10ff00)) {
-        console.log(`Highlighting chain: value=${chainValue}, indices=`, diceIndices);
-        
-        // Reset non-set-aside dice first
-        this.resetDiceAppearance();
-        
-        // Highlight each die in this chain
-        diceIndices.forEach(index => {
-            if (index >= 0 && index < this.dice.length) {
-                const die = this.dice[index];
-                
-                // Skip dice that are already set aside
-                if (die.userData.isSetAside) return;
-                
-                // Clone materials to avoid affecting other dice
-                const highlightMaterials = this.diceMaterials.map(mat => mat.clone());
-                
-                // Apply glow highlight with the specified color
-                highlightMaterials.forEach(mat => {
-                    mat.emissive = color;
-                    mat.emissiveIntensity = 0.5;
-                });
-                
-                die.material = highlightMaterials;
-            } else {
-                console.warn(`Invalid die index: ${index}`);
-            }
-        });
-    }
-    
-    highlightAllChainDice(diceIndices, color = new THREE.Color(0x10ff00)) {
-        console.log(`Highlighting entire chain with indices:`, diceIndices);
-        
-        // Highlight each die in this chain regardless of setAside status
-        diceIndices.forEach(index => {
-            if (index >= 0 && index < this.dice.length) {
-                const die = this.dice[index];
-                
-                // Clone materials to avoid affecting other dice
-                const highlightMaterials = this.diceMaterials.map(mat => mat.clone());
-                
-                // Apply glow highlight with the specified color
-                highlightMaterials.forEach(mat => {
-                    mat.emissive = color;
-                    mat.emissiveIntensity = 0.5;
-                });
-                
-                die.material = highlightMaterials;
-            } else {
-                console.warn(`Invalid die index: ${index}`);
-            }
-        });
-    }
-    
-    // Rotate a die so the given face value (1-6) ends up pointing up,
-    // and update its stored final value. Used by Enrichment.
-    setDieValue(index, value) {
-        if (index < 0 || index >= this.dice.length) {
-            console.warn(`setDieValue: invalid index ${index}`);
-            return;
-        }
-        const die = this.dice[index];
-        const euler = getRotationForValue(value);
-        die.rotation.set(euler.x, euler.y, euler.z);
-        die.userData.finalValue = value;
-        console.log(`setDieValue: die ${index} set to ${value}`);
-    }
-
-    unhighlightDice() {
-        this.dice.forEach(die => {
-            if (!die.userData.isSetAside) {
-                // Restore original materials
-                die.material = this.diceMaterials;
-            }
-        });
-    }
-} // <-- This closing brace was moved to enclose the unhighlightDice method correctly
-
-// Expose the class to global scope for traditional script loading
-window.DiceController = DiceController;
+    root.DiceController = DiceController;
+    root.makeDie = makeDie;
+})(window);

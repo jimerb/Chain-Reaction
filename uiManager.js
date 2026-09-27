@@ -1,341 +1,145 @@
-// uiManager.js
-
-class UIManager {
-    constructor() {
-        // Scoreboard Elements
-        this.scoreboardTable = document.getElementById('scoreboard');
-        this.scoreboardHead = this.scoreboardTable.querySelector('thead');
-        this.scoreboardBody = this.scoreboardTable.querySelector('tbody');
-
-        // Message Area Elements
-        this.gameMessage = document.getElementById('game-message');
-        this.turnInfo = document.getElementById('turn-info');
-        this.chainInfo = document.getElementById('chain-info');
-
-        // Control Elements
-        this.rollButton = document.getElementById('roll-button');
-        this.continueButton = document.getElementById('continue-button');
-        this.stopButton = document.getElementById('stop-button');
-        
-        // Enhancement Elements
-        this.enhancementButtons = document.getElementById('enhancement-buttons');
-        this.enhancementPrompt = document.getElementById('enhancement-prompt');
-        this.enrichmentButton = document.getElementById('enrichment-button');
-        this.controlRodButton = document.getElementById('controlrod-button');
-        this.fusionButton = document.getElementById('fusion-button');
-        
-        // UI Screen Elements
-        this.setupScreen = document.getElementById('setup-screen');
-        this.gameScreen = document.getElementById('game-screen');
-        this.enhancementsDisplay = document.getElementById('enhancements-display-area');
+/* UI is derived from the current engine state. Every action is explicit and keyboard accessible. */
+(function (root) {
+    const $ = id => document.getElementById(id);
+    const text = (id, value) => { $(id).textContent = value; };
+    function button(label, action, className = 'secondary') {
+        const el = document.createElement('button'); el.type = 'button'; el.className = className;
+        el.textContent = label; el.addEventListener('click', action); return el;
     }
-
-    // Screen Management
-    showGameScreen() {
-        this.setupScreen.classList.add('hidden');
-        this.gameScreen.classList.remove('hidden');
-    }
-
-    // Scoreboard Methods
-    initializeScoreboard(players) {
-        // Clear any existing content
-        this.scoreboardHead.innerHTML = '';
-        this.scoreboardBody.innerHTML = '';
-        
-        // Add player name headers
-        const headerRow = document.createElement('tr');
-        players.forEach(player => {
-            const th = document.createElement('th');
-            th.textContent = player.name;
-            th.dataset.playerId = player.id;
-            headerRow.appendChild(th);
-        });
-        this.scoreboardHead.appendChild(headerRow);
-        
-        // Add initial scores (all zeros)
-        const bodyRow = document.createElement('tr');
-        players.forEach(player => {
-            const td = document.createElement('td');
-            td.textContent = '0';
-            td.dataset.playerId = player.id;
-            bodyRow.appendChild(td);
-        });
-        this.scoreboardBody.appendChild(bodyRow);
-    }
-    
-    updateScore(playerId, newScore) {
-        const scoreCell = this.scoreboardBody.querySelector(`tr td[data-player-id="${playerId}"]`);
-        if (scoreCell) {
-            scoreCell.textContent = newScore;
-        }
-    }
-    
-    highlightActivePlayer(playerId) {
-        // Remove highlight from all players
-        this.scoreboardHead.querySelectorAll('th').forEach(th => {
-            th.classList.remove('active-player');
-        });
-        
-        // Add highlight to active player
-        const activePlayerHeader = this.scoreboardHead.querySelector(`th[data-player-id="${playerId}"]`);
-        if (activePlayerHeader) {
-            activePlayerHeader.classList.add('active-player');
-        }
-    }
-
-    // Message Display Methods
-    displayMessage(message, isError = false) {
-        this.gameMessage.textContent = message;
-        this.gameMessage.classList.toggle('error-message', isError);
-        
-        // Flash animation if important
-        if (isError) {
-            this.gameMessage.classList.add('flash');
-            setTimeout(() => {
-                this.gameMessage.classList.remove('flash');
-            }, 1000);
-        }
-    }
-    
-    updateTurnInfo(playerName, turnNumber, turnState) {
-        this.turnInfo.textContent = `Turn ${turnNumber}: ${playerName}'s ${turnState}`;
-    }
-    
-    updateChainInfo(chainLength, potentialScore = null) {
-        if (potentialScore !== null) {
-            this.chainInfo.textContent = `Chain Length: ${chainLength} | Potential Score: ${potentialScore}`;
-        } else {
-            this.chainInfo.textContent = `Chain Length: ${chainLength}`;
-        }
-    }
-    
-    clearChainInfo() {
-        this.chainInfo.textContent = '';
-    }
-    
-    clearMessages() {
-        console.log("UIManager: Clearing all message areas.");
-        this.gameMessage.textContent = '';
-        this.turnInfo.textContent = '';
-        this.chainInfo.textContent = '';
-        this.gameMessage.classList.remove('error-message'); // Remove error styling too
-    }
-
-    // Button Control Methods - Simplified to use only .hidden class
-    showRollButton(enabled = true) {
-        this.rollButton.classList.toggle('hidden', !enabled);
-        this.rollButton.disabled = !enabled;
-    }
-    
-    showTurnChoiceButtons(enabled = true) {
-        this.continueButton.classList.toggle('hidden', !enabled);
-        this.continueButton.disabled = !enabled;
-        this.stopButton.classList.toggle('hidden', !enabled);
-        this.stopButton.disabled = !enabled;
-        this.rollButton.classList.add('hidden');
-    }
-    
-    hideAllButtons() {
-        this.rollButton.classList.add('hidden');
-        this.rollButton.disabled = true;
-        this.continueButton.classList.add('hidden');
-        this.continueButton.disabled = true;
-        this.stopButton.classList.add('hidden');
-        this.stopButton.disabled = true;
-        this.showEnhancementButtons(false);
-        this.removeChainSwitchButtons();
-    }
-    
-    // Keep showContinueButton and showStopButton simple if needed for specific cases,
-    // but primarily rely on showRollButton and showTurnChoiceButtons
-    showContinueButton(enabled = true) {
-        this.continueButton.classList.toggle('hidden', !enabled);
-    }
-    
-    showStopButton(enabled = true) {
-        this.stopButton.classList.toggle('hidden', !enabled);
-    }
-    
-    // Add new method for chain switching buttons
-    showChainSwitchButtons(currentChainValue, newChainValue, currentChainLength, newChainLength) {
-        // Hide standard buttons
-        this.hideAllButtons();
-        
-        // Create switch chain buttons dynamically
-        const controlsArea = document.getElementById('controls-area');
-        
-        // Remove any existing chain switch buttons
-        const existingSwitchButtons = document.querySelectorAll('.chain-switch-button');
-        existingSwitchButtons.forEach(button => button.remove());
-        
-        // Calculate scores for both chains
-        const currentChainScore = currentChainValue * currentChainLength;
-        const newChainScore = newChainValue * newChainLength;
-        
-        // Create Keep Current Chain button
-        const keepButton = document.createElement('button');
-        keepButton.textContent = `Keep Chain: ${currentChainLength}x${currentChainValue} (${currentChainScore} pts)`;
-        keepButton.classList.add('chain-switch-button', 'keep-chain-button');
-        keepButton.id = 'keep-chain-button';
-        controlsArea.appendChild(keepButton);
-        
-        // Create Switch to New Chain button
-        const switchButton = document.createElement('button');
-        switchButton.textContent = `Switch Chain: ${newChainLength}x${newChainValue} (${newChainScore} pts)`;
-        switchButton.classList.add('chain-switch-button', 'switch-chain-button');
-        switchButton.id = 'switch-chain-button';
-        controlsArea.appendChild(switchButton);
-        
-        return { keepButton, switchButton };
-    }
-    
-    // Remove chain switching buttons
-    removeChainSwitchButtons() {
-        const switchButtons = document.querySelectorAll('.chain-switch-button');
-        switchButtons.forEach(button => button.remove());
-    }
-    
-    showEnhancementButtons(show = true) {
-        this.enhancementButtons.classList.toggle('hidden', !show);
-    }
-
-    enableEnhancementButton(type, enable = true) {
-        switch (type) {
-            case 'enrichment': this.enrichmentButton.disabled = !enable; break;
-            case 'controlRod': this.controlRodButton.disabled = !enable; break;
-            case 'fusion':     this.fusionButton.disabled = !enable;     break;
-        }
-    }
-
-    showEnhancementPrompt(message, show = true) {
-        this.enhancementPrompt.textContent = message;
-        this.enhancementPrompt.classList.toggle('hidden', !show);
-    }
-
-    hideEnhancementPrompt() {
-        this.enhancementPrompt.textContent = '';
-        this.enhancementPrompt.classList.add('hidden');
-    }
-
-    /**
-     * Refresh the enabled/disabled state of the three enhancement buttons
-     * based on what the game manager currently allows for the active player.
-     */
-    refreshEnhancementButtons(gameManager) {
-        this.showEnhancementButtons(true);
-        ['enrichment', 'controlRod', 'fusion'].forEach(type => {
-            this.enableEnhancementButton(type, gameManager.canUseEnhancement(type));
-        });
-    }
-    
-    // Enhancement Token Display
-    displayPlayerEnhancements(players, tokenObjects) {
-        this.enhancementsDisplay.innerHTML = '';
-        
-        // Create a mapping for player enhancements to be used in the scoreboard
-        const enhancementsByPlayer = {};
-        players.forEach(player => {
-            enhancementsByPlayer[player.id] = player.enhancements;
-        });
-        
-        // Create enhancement tokens below each player in the scoreboard
-        const scoreboardBodyRow = this.scoreboardBody.querySelector('tr');
-        if (scoreboardBodyRow) {
-            // Add a new row for enhancements below the scores
-            const enhancementsRow = document.createElement('tr');
-            enhancementsRow.className = 'enhancements-row';
-            
-            scoreboardBodyRow.querySelectorAll('td').forEach(td => {
-                const playerId = td.dataset.playerId;
-                const enhancementCell = document.createElement('td');
-                enhancementCell.dataset.playerId = playerId;
-                
-                if (playerId && enhancementsByPlayer[playerId]) {
-                    const enhancements = enhancementsByPlayer[playerId];
-                    
-                    // Create compact enhancement tokens
-                    for (const type in enhancements) {
-                        const tokenElem = document.createElement('div');
-                        tokenElem.className = 'enhancement-token-placeholder';
-                        
-                        // Add used class if enhancement is used
-                        if (enhancements[type] === 'used') {
-                            tokenElem.classList.add('used');
-                        }
-                        
-                        // Use shorter display names
-                        let displayName = type;
-                        switch(type) {
-                            case 'enrichment': displayName = 'Enr'; break;
-                            case 'controlRod': displayName = 'CR'; break;
-                            case 'fusion': displayName = 'Fus'; break;
-                        }
-                        
-                        tokenElem.textContent = displayName;
-                        enhancementCell.appendChild(tokenElem);
-                    }
-                }
-                
-                enhancementsRow.appendChild(enhancementCell);
-            });
-            
-            this.scoreboardBody.appendChild(enhancementsRow);
-        }
-    }
-    
-    updateEnhancementTokenVisual(playerId, type, isUsed) {
-        // Update in the scoreboard
-        const enhancementsRow = this.scoreboardBody.querySelector('.enhancements-row');
-        if (enhancementsRow) {
-            const playerCell = enhancementsRow.querySelector(`td[data-player-id="${playerId}"]`);
-            if (playerCell) {
-                // Find matching token by text content
-                let displayName = type;
-                switch(type) {
-                    case 'enrichment': displayName = 'Enr'; break;
-                    case 'controlRod': displayName = 'CR'; break;
-                    case 'fusion': displayName = 'Fus'; break;
-                }
-                
-                const tokens = playerCell.querySelectorAll('.enhancement-token-placeholder');
-                tokens.forEach(token => {
-                    if (token.textContent === displayName) {
-                        if (isUsed) {
-                            token.classList.add('used');
-                        } else {
-                            token.classList.remove('used');
-                        }
-                    }
+    class UIManager {
+        constructor(dice, act) { this.dice = dice; this.act = act; this.picker = null; }
+        render(game, busy = false) {
+            this.game = game;
+            this.busy = busy;
+            const computer = game.player.computer && game.phase !== 'GAME_OVER';
+            $('game-screen').classList.toggle('winner', game.phase === 'GAME_OVER');
+            text('round-label', 'R' + game.round);
+            text('target-label', game.target);
+            text('turn-label', (game.tieBreak ? 'TIEBREAK' : game.finalRound ? 'FINAL ROUND' : 'ROUND ' + game.round) + ' / TARGET ' + game.target);
+            const ended = ['TURN_END', 'GAME_OVER'].includes(game.phase);
+            text('player-heading', game.phase === 'GAME_OVER' ? game.players[game.winner].name + ' wins.' : game.player.name + (ended ? ' · turn complete' : computer ? ' is thinking…' : ', your move.'));
+            text('chain-total', ended ? (game.result.points > 0 ? '+' : '') + game.result.points : game.chain ? game.chainScore : '—');
+            document.querySelector('.turn-total > span').textContent = ended ? 'THIS TURN' : 'THIS CHAIN';
+            document.querySelector('.turn-total > small').textContent = ended ? 'score change' : 'unbanked energy';
+            text('roll-label', busy ? 'DICE IN MOTION' : game.rollNumber ? 'ROLL ' + game.rollNumber : 'READY TO ROLL');
+            text('active-label', game.phase === 'READY' ? 'FIVE DICE · ONE DECISION' : game.available.length + (game.available.length === 1 ? ' DIE IN PLAY' : ' DICE IN PLAY'));
+            text('held-label', game.chain ? 'YOUR CHAIN · ' + game.held.length + ' × ' + game.chain : 'YOUR CHAIN');
+            text('table-note', 'Switching releases your old dice to roll again. Only your new chain scores.');
+            this.renderScores(game);
+            if (!busy) this.dice.render(game);
+            $('choices').replaceChildren(); $('actions').replaceChildren();
+            $('risk-note').textContent = '';
+            this.picker = null;
+            $('enhancement-picker').hidden = true;
+            let title, detail, kicker = 'YOUR MOVE';
+            const add = (label, action, css) => $('actions').append(button(label, () => this.act(action), css));
+            if (busy) { title = 'Let them roll.'; detail = 'Only the available dice are rolling. Your chain stays put.'; }
+            else if (game.phase === 'READY') {
+                title = 'Start a reaction.'; detail = 'Roll five dice, then choose a matching pair or group.';
+                add('Roll five dice', { type: 'roll' }, 'primary');
+            } else if (game.phase === 'REVIEW') {
+                const choices = game.choices();
+                title = choices.length > 1 ? 'Choose your chain.' : choices.length ? (game.chain ? 'Your next move.' : 'A chain is waiting.') : game.chain ? 'No match. One last chance.' : 'A radiation leak.';
+                detail = choices.length > 1 ? 'Compare the points and dice left. Only the chain you choose will count.' : choices.length ? (game.chain && !game.matches.length ? 'Your old chain missed. Switch to this pair, use an enhancement, or accept a meltdown.' : 'Select the matching group, then bank it or keep rolling.') : game.chain ? 'Use an available rescue enhancement, or accept a meltdown for zero this turn.' : 'Five different numbers cost 10 points. Enrichment can create a pair before the penalty.';
+                choices.forEach(choice => {
+                    const el = button('', () => this.act({ type: 'choose', value: choice.value }), 'choice');
+                    const kind = document.createElement('span'); kind.className = 'choice-kind'; kind.textContent = choice.kind === 'keep' ? 'KEEP + EXTEND' : choice.kind === 'switch' ? 'SWITCH CHAIN' : 'CHOOSE CHAIN';
+                    const dice = document.createElement('span'); dice.className = 'choice-dice'; dice.setAttribute('aria-hidden', 'true');
+                    for (let i = 0; i < choice.count; i++) dice.append(makeDie(choice.value, i, 'choice-preview', false));
+                    const score = document.createElement('span'); score.className = 'choice-score'; score.textContent = choice.score;
+                    const unit = document.createElement('small'); unit.textContent = 'POINTS'; score.append(unit);
+                    const info = document.createElement('small');
+                    const left = 5 - choice.count;
+                    info.textContent = left + (left === 1 ? ' die left' : ' dice left') + (choice.kind === 'switch' ? ' · old dice return to play' : ' · energy points');
+                    info.className = 'choice-detail';
+                    el.append(kind, dice, score, info); el.setAttribute('aria-label', kind.textContent + ': ' + choice.count + ' × ' + choice.value + ', ' + choice.score + ' points, ' + left + ' dice left');
+                    $('choices').append(el);
                 });
+                if (!choices.length || (game.chain && !game.matches.length)) add(game.chain ? 'Accept meltdown · 0' : 'Accept leak · −10 max', { type: 'fail' }, 'danger');
+                if (game.chain && !game.matches.length && choices.length) text('risk-note', 'Keeping an unmatched old chain would be a meltdown. Control Rod can bank it if available.');
+            } else if (game.phase === 'DECISION') {
+                title = 'Bank it. Or build it.'; detail = 'Your ' + game.held.length + ' ' + game.chain + 's are worth ' + game.chainScore + ' points. The next roll puts this chain at risk.';
+                add('Bank ' + game.chainScore + ' points', { type: 'bank' }, 'primary');
+                add('Roll ' + game.available.length + (game.available.length === 1 ? ' die' : ' dice'), { type: 'roll' }, 'secondary');
+                text('risk-note', Math.round(game.survivalChance() * 100) + '% chance of a match or replacement pair · before enhancements. Switching may reduce your points.');
+            } else if (game.phase === 'TURN_END' || game.phase === 'GAME_OVER') {
+                kicker = game.phase === 'GAME_OVER' ? 'TABLE COMPLETE' : 'TURN COMPLETE';
+                title = game.result.title + (game.result.points > 0 ? ' · +' + game.result.points : game.result.points < 0 ? ' · ' + game.result.points : ' · 0');
+                detail = game.result.detail;
+                if (game.phase === 'GAME_OVER') { detail += ' ' + game.players[game.winner].name + ' wins with ' + game.players[game.winner].score + ' points.'; add('Play again', { type: 'restart' }, 'primary'); }
+                else {
+                    const index = game.contenders.indexOf(game.current);
+                    const next = game.contenders[(index + 1) % game.contenders.length];
+                    add('Next · ' + game.players[next].name, { type: 'next' }, 'primary');
+                    if (game.finalRound) text('risk-note', game.tieBreak ? 'Tied leaders play another complete round.' : 'Target reached. Finish this round so everyone has equal turns.');
+                }
             }
+            text('decision-kicker', computer && !busy ? 'COMPUTER TURN' : kicker);
+            text('decision-title', title); text('decision-detail', detail);
+            this.renderEnhancements(game);
+            if (busy || computer) [...$('actions').querySelectorAll('button'), ...$('choices').querySelectorAll('button'), ...$('enhancements').querySelectorAll('button')].forEach(el => { el.disabled = true; });
+        }
+        renderScores(game) {
+            $('scoreboard').replaceChildren();
+            game.players.forEach(p => {
+                const card = document.createElement('div'); card.className = 'player-card' + (p.id === game.current ? ' current' : '');
+                if (p.id === game.current) card.setAttribute('aria-current', 'true');
+                const row = document.createElement('div'); row.className = 'player-top';
+                const identity = document.createElement('div');
+                const num = document.createElement('div'); num.className = 'player-number'; num.textContent = (p.computer ? 'COMPUTER ' : 'PLAYER ') + (p.id + 1);
+                const name = document.createElement('div'); name.className = 'player-name'; name.textContent = p.name; identity.append(num, name);
+                const score = document.createElement('span'); score.className = 'player-score'; score.textContent = p.score;
+                row.append(identity, score);
+                const track = document.createElement('div'); track.className = 'score-track'; const progress = document.createElement('span'); progress.style.width = Math.min(100, p.score / game.target * 100) + '%'; track.append(progress);
+                const tokens = document.createElement('div'); tokens.className = 'token-status';
+                [['enrichment', 'ENR'], ['controlRod', 'ROD'], ['fusion', 'FUS']].forEach(([key, label]) => { const t = document.createElement('span'); t.textContent = label; t.className = p.tokens[key] ? '' : 'spent'; t.title = key + (p.tokens[key] ? ' available' : ' unavailable'); tokens.append(t); });
+                card.append(row, track, tokens); $('scoreboard').append(card);
+            });
+            if (game.history.length) {
+                $('history').replaceChildren();
+                game.history.slice(0, 5).forEach(event => {
+                    const li = document.createElement('li'), body = document.createElement('span'), name = document.createElement('b'), desc = document.createElement('small'), pts = document.createElement('span');
+                    name.textContent = event.player; desc.textContent = event.title; pts.className = 'log-points'; pts.textContent = (event.points > 0 ? '+' : '') + event.points;
+                    body.append(name, desc); li.append(body, pts); $('history').append(li);
+                });
+            } else { $('history').textContent = 'The first move is yours.'; }
+        }
+        renderEnhancements(game) {
+            const data = [
+                ['enrichment', 'E', 'Enrichment', 'Change one die to your chain.'],
+                ['controlRod', 'Ⅱ', 'Control Rod', 'After a miss, bank your old chain.'],
+                ['fusion', 'F', 'Fusion', 'Bank your chain + a new pair.']
+            ];
+            $('enhancements').replaceChildren();
+            data.forEach(([type, icon, title, description]) => {
+                const el = button('', () => {
+                    if (type === 'controlRod') this.act({ type: 'controlRod' });
+                    else this.showPicker(type);
+                }, 'enhancement');
+                el.id = type + '-button'; el.disabled = !game.canUse(type);
+                const glyph = document.createElement('span'); glyph.className = 'token-icon'; glyph.textContent = icon;
+                const body = document.createElement('span'), name = document.createElement('strong'), desc = document.createElement('small');
+                name.textContent = title;
+                desc.textContent = !game.player.tokens[type] ? 'Unavailable this game' : game.enhancementUsed ? 'One enhancement already used this roll' : description;
+                body.append(name, desc); el.append(glyph, body); $('enhancements').append(el);
+            });
+        }
+        showPicker(type) {
+            const game = this.game;
+            if (!game.canUse(type) || this.busy || game.player.computer) return;
+            this.picker = type;
+            const box = $('enhancement-picker'); box.replaceChildren(); box.hidden = false;
+            const prompt = document.createElement('p');
+            prompt.textContent = type === 'fusion' ? 'Choose the second pair to bank with your chain. This ends your turn.' : 'Choose exactly which die to change. The token is spent only when you confirm a change.';
+            box.append(prompt);
+            if (type === 'fusion') game.alternatives.forEach(g => {
+                const count = game.held.length + (game.phase === 'REVIEW' ? game.matches.length : 0);
+                box.append(button('Fuse ' + g.ids.length + ' × ' + g.value + ' · bank ' + (count * game.chain + g.ids.length * g.value), () => this.act({ type: 'fusion', value: g.value })));
+            });
+            else game.enrichmentOptions().forEach(o => box.append(button('Die ' + (o.id + 1) + ': ' + game.dice[o.id].value + ' → ' + o.value, () => this.act({ type: 'enrich', id: o.id, value: o.value }))));
+            box.append(button('Cancel', () => { box.hidden = true; this.picker = null; $('enrichment-button').focus(); }, 'cancel'));
+            box.querySelector('button').focus();
         }
     }
-
-    // Game End
-    displayWinner(winnerInfo) {
-        let message;
-        
-        if (winnerInfo.tie) {
-            message = `Tie game between ${winnerInfo.winners.map(p => p.name).join(' and ')} with ${winnerInfo.score} points!`;
-        } else {
-            message = `${winnerInfo.winners[0].name} wins with ${winnerInfo.score} points!`;
-        }
-        
-        this.displayMessage(message);
-        this.hideAllButtons();
-        
-        // Create a "play again" button
-        const playAgainButton = document.createElement('button');
-        playAgainButton.textContent = 'Play Again';
-        playAgainButton.id = 'play-again-button';
-        playAgainButton.addEventListener('click', () => {
-            window.location.reload();
-        });
-        
-        // Add to controls area
-        document.getElementById('controls-area').appendChild(playAgainButton);
-    }
-}
-
-// Expose the class to global scope for traditional script loading
-window.UIManager = UIManager;
+    root.UIManager = UIManager;
+})(window);

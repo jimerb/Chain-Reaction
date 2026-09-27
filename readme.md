@@ -1,81 +1,48 @@
-Code Structure Summary:
+# Chain Reaction
 
-    index.html: Sets up the page structure, containers for setup/game screens, scoreboard, messages, canvas, controls, and includes necessary libraries and the main script (main.js).
+A local push-your-luck dice game for 2–5 players, with pass-and-play and computer opponents. Choose your matching group, build or switch chains, and decide when to bank the energy.
 
-    style.css: Provides styling for layout, appearance, responsiveness, active player highlights, message formatting, button states, and basic placeholders.
+## Run
 
-    main.js:
+Requires Node.js. No installation is needed to play:
 
-        Initializes the Three.js scene, camera, renderer, lighting, and optional controls.
+    node server.js
 
-        Sets up the main game modules (GameManager, UIManager, DiceController, EnhancementController).
+Open http://localhost:8000. The server binds to this computer only. Set PORT to choose a different port. The runtime is plain HTML, CSS and JavaScript, with no CDN or network dependency.
 
-        Handles the transition from setup screen to game screen.
+Games last for the current browser session; refreshing starts over. Sound is optional and starts off. The game supports keyboard controls. Full dice rolls visibly travel, tumble, bounce and settle; the Full rolls / Gentle rolls button selects a gentler animation without a rapid flash.
 
-        Contains the main animation loop (animate).
+## Rules and review
 
-        Sets up raycasting for clicking on dice/tokens and delegates clicks via handleInteraction.
+- [Authoritative rules](docs/Chain%20Reaction%20Game%20Conceptual%20Overview.md)
+- [Technical and gameplay review](GAME_DISPLAY_REVIEW.md)
 
-        Connects UI button clicks to GameManager or EnhancementController actions.
+Five matching dice score and end the turn. Switching gives up the old chain's points and returns its dice to the rolling pool, so a new pair or triple can keep going. The final round gives everyone equal turns. Tied leaders play extra rounds.
 
-    gameManager.js:
+## Structure
 
-        Manages game state (players, scores, current turn, phase, etc.).
+- gameManager.js: independently testable rules, dice ownership, enhancements, scoring and round transitions.
+- enhancementController.js: computer decision policy using the engine's public actions.
+- diceController.js: dice appearance, tumble animation, and optional synthesized clatter.
+- uiManager.js: accessible display and explicit choices derived from game state.
+- main.js: setup, interaction lock during rolls, opponent scheduling and audio controls.
+- index.html, style.css: fixed tabletop and responsive layout.
+- server.js: local static preview.
 
-        Handles the core turn sequence logic (rolling, chain selection, decision, extending, meltdown, scoring).
+diceLogic.js, utils.js, the original AssessDiceRoll test data, and dated review notes are retained as legacy references. The revived game does not load them.
 
-        Implements specific game rules (Radiation Leak, Critical Mass re-roll).
+## Verification
 
-        Interfaces with UIManager to update the display.
+    node --test tests/engine.test.js
+    node tests/sim_play.js
+    node tests/balance.js
 
-        Interfaces with DiceController to trigger dice actions (roll, set aside).
+For browser verification, install development dependencies with npm install, start the server, and run:
 
-        Interfaces with EnhancementController to check usability and apply enhancement effects.
+    npm run test:ui
 
-        Checks win conditions and handles game end, including the fairness rule and ties.
+The test uses installed Chrome on Windows. On other platforms, install a Playwright Chromium browser (npx playwright install chromium). You may set PLAYWRIGHT_CHROMIUM to an explicit browser executable or TEST_URL to another local server address.
 
-    uiManager.js:
+The browser test captures screenshots at 1920, 1366, 1024, 768, 390 and 320 pixel widths and plays complete games through visible controls.
 
-        Handles all DOM manipulation.
-
-        Updates the scoreboard, messages, turn info, and chain info.
-
-        Manages button visibility and enabled/disabled states.
-
-        Displays enhancement tokens visually (using placeholders for now, interacts with DiceController for 3D updates).
-
-        Highlights the active player.
-
-        Displays winner messages.
-
-    diceController.js:
-
-        Manages all Three.js objects (dice, table, tokens).
-
-        Creates materials and geometries.
-
-        Handles dice rolling animation (using GSAP).
-
-        Determines final dice values (using utils.js).
-
-        Visually moves/highlights dice (set aside, potential chains, enrichment targets).
-
-        Updates enhancement token 3D visuals (material change/flip animation).
-
-    enhancementController.js:
-
-        Mediates the use of enhancements.
-
-        Checks if an enhancement can be used based on game state and player availability.
-
-        Handles player interaction required for enhancements (like selecting a die for Enrichment).
-
-        Calls the appropriate methods in GameManager to apply the enhancement's effect.
-
-        Triggers visual updates for used tokens via DiceController and UIManager.
-
-    utils.js:
-
-        Contains helper functions, notably getDiceValueFromRotation (to determine the top face of a die) and texture generation functions (createDiceTexture, createTokenTexture) using the Canvas API.
-
-This provides a complete, functional structure for the Chain Reaction game as requested. Remember to place the logo.png file in the same directory as the HTML file, or adjust the path accordingly.
+Automated verification establishes rule consistency and operability. It does not establish human enjoyment or physical-device/speaker quality; see the playtest questions in the rules document.

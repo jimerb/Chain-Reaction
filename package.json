@@ -1,0 +1,16 @@
+{
+  "name": "chain-reaction",
+  "version": "2.0.0",
+  "private": true,
+  "description": "A fixed-table dice game with an independently tested rules engine.",
+  "scripts": {
+    "start": "node server.js",
+    "test": "node --test tests/engine.test.js",
+    "test:simulation": "node tests/sim_play.js",
+    "test:ui": "node tests/ui_test.js",
+    "analyze:balance": "node tests/balance.js"
+  },
+  "devDependencies": {
+    "playwright": "1.62.1"
+  }
+}

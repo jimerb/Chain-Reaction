@@ -1,224 +1,180 @@
-// Playwright UI smoke test for Chain Reaction.
-// Drives the real game through a headless Chromium, captures screenshots,
-// and asserts the core UI flow works (roll -> chain select -> decision ->
-// stop -> next player).
-
+'use strict';
 const { chromium } = require('playwright');
-const path = require('path');
-const fs = require('fs');
-
-const URL = 'http://localhost:8000/';
-const SHOT_DIR = path.resolve(__dirname, 'screenshots');
-fs.mkdirSync(SHOT_DIR, { recursive: true });
-
-function log(...a) { console.log('[ui-test]', ...a); }
-
+const assert = require('node:assert/strict');
+const path = require('node:path');
+const fs = require('node:fs');
+const URL = process.env.TEST_URL || 'http://localhost:8000';
+const screenshots = path.join(__dirname, 'screenshots');
+fs.mkdirSync(screenshots, { recursive: true });
 (async () => {
-    const browser = await chromium.launch({
-        executablePath: process.env.PLAYWRIGHT_CHROMIUM || '/opt/pw-browsers/chromium-1194/chrome-linux/chrome',
-        headless: true,
-        args: ['--no-sandbox', '--disable-gpu', '--use-gl=swiftshader']
-    });
-    const ctx = await browser.newContext({ viewport: { width: 1280, height: 800 } });
-    const page = await ctx.newPage();
-
-    // Redirect the CDN scripts to the locally-vendored copies so the
-    // sandbox doesn't need external network access.
-    const vendor = path.join(__dirname, 'vendor/node_modules');
-    const routes = [
-        ['**/three.min.js', path.join(vendor, 'three/build/three.min.js')],
-        ['**/OrbitControls.js', path.join(vendor, 'three/examples/js/controls/OrbitControls.js')],
-        ['**/gsap.min.js', path.join(vendor, 'gsap/dist/gsap.min.js')]
-    ];
-    for (const [glob, filePath] of routes) {
-        await page.route(glob, async (route) => {
-            const body = fs.readFileSync(filePath);
-            await route.fulfill({
-                status: 200,
-                contentType: 'application/javascript',
-                body
+    const browser = await chromium.launch({ headless: true, ...(process.env.PLAYWRIGHT_CHROMIUM ? { executablePath: process.env.PLAYWRIGHT_CHROMIUM } : process.platform === 'win32' ? { channel: 'chrome' } : {}) });
+    const errors = [];
+    try {
+        const page = await browser.newPage({ viewport: { width: 1440, height: 1050 }, reducedMotion: 'reduce' });
+        page.on('pageerror', e => errors.push(e.message));
+        await page.goto(URL);
+        assert.equal(await page.locator('#target-score').inputValue(), '100');
+        assert.equal(await page.locator('#play-mode option').count(), 2);
+        await page.screenshot({ path: path.join(screenshots, '01-setup-desktop.png'), fullPage: true });
+        await page.getByRole('button', { name: 'Take your seats' }).click();
+        async function rig(values) { await page.evaluate(values => { let i = 0; window.gameManager.random = () => (values[i++] - .5) / 6; }, values); }
+        async function ready() { await page.waitForFunction(() => !document.getElementById('new-game-button').disabled); }
+        async function roll(values, name = /Roll /) { await rig(values); await page.locator('#actions').getByRole('button', { name }).click(); await ready(); }
+        async function newGame(count = 2, mode = 'local') {
+            await page.getByRole('button', { name: 'New game', exact: true }).click();
+            await page.getByRole('button', { name: 'New table', exact: true }).click();
+            await page.locator('#player-count').selectOption(String(count));
+            await page.locator('#play-mode').selectOption(mode);
+            await page.locator('#target-score').selectOption('50');
+            await page.getByRole('button', { name: 'Take your seats' }).click();
+        }
+        await page.screenshot({ path: path.join(screenshots, '02-before-first-roll.png'), fullPage: true });
+        assert.equal(await page.locator('#active-dice .die-wrap').count(), 5);
+        assert.ok(await page.locator('#active-dice').isVisible(), 'Dice visible immediately, without resizing');
+        // Full rolls must visibly travel and tumble even when the OS prefers reduced
+        // motion. The game's explicit Gentle rolls control provides the alternative.
+        await rig([2, 2, 2, 6, 6]);
+        await page.locator('#actions').getByRole('button', { name: /Roll / }).click();
+        await page.waitForTimeout(280);
+        const sampleMotion = () => page.locator('#active-dice .die-wrap').evaluateAll(dice => dice.map(d => ({
+            position: getComputedStyle(d).transform, rotation: getComputedStyle(d.querySelector('.die')).transform,
+            duration: d.getAnimations()[0]?.effect.getTiming().duration
+        })));
+        const early = await sampleMotion();
+        assert.ok(early.every(d => d.duration >= 1500));
+        assert.equal(await page.locator('.choice').count(), 0, 'Do not show decisions while dice are airborne');
+        await page.screenshot({ path: path.join(screenshots, 'roll-airborne.png'), fullPage: true });
+        await page.waitForTimeout(330);
+        const later = await sampleMotion();
+        assert.ok(later.every((d, i) => d.position !== early[i].position && d.rotation !== early[i].rotation), 'All rolling dice travel AND rotate');
+        await page.screenshot({ path: path.join(screenshots, 'roll-bounce.png'), fullPage: true });
+        await ready();
+        assert.equal(await page.locator('.choice').count(), 2);
+        assert.deepEqual(await page.locator('.choice-dice').evaluateAll(groups => groups.map(group => [...group.querySelectorAll('.die')].map(d => d.children[2].querySelectorAll('.pip').length))), [[2, 2, 2], [6, 6]]);
+        await page.screenshot({ path: path.join(screenshots, '03-pairing-choice.png'), fullPage: true });
+        await page.getByRole('button', { name: 'Full rolls', exact: true }).click();
+        assert.equal(await page.getByRole('button', { name: 'Gentle rolls', exact: true }).getAttribute('aria-pressed'), 'true');
+        await page.getByRole('button', { name: 'CHOOSE CHAIN: 2 × 6, 12 points, 3 dice left' }).click();
+        assert.equal(await page.locator('#held-dice .die-wrap').count(), 2);
+        await roll([6, 5, 5]);
+        assert.equal(await page.locator('.choice').count(), 2);
+        await page.getByRole('button', { name: /SWITCH CHAIN: 2 × 5/ }).click();
+        assert.equal(await page.locator('#active-dice .die-wrap').count(), 3);
+        await page.screenshot({ path: path.join(screenshots, '04-switched-chain.png'), fullPage: true });
+        await roll([5, 1, 2]);
+        await page.getByRole('button', { name: /KEEP \+ EXTEND/ }).click();
+        assert.equal(await page.evaluate(() => gameManager.phase), 'DECISION');
+        await page.getByRole('button', { name: 'Bank 15 points', exact: true }).click();
+        assert.equal(await page.evaluate(() => gameManager.player.score), 15);
+        assert.equal(await page.evaluate(() => gameManager.phase), 'TURN_END');
+        await page.getByRole('button', { name: /Next ·/ }).click();
+        assert.equal(await page.locator('#active-dice .die-wrap').count(), 5);
+        assert.equal(await page.locator('#held-dice .die-wrap').count(), 0);
+        await roll([1, 2, 3, 4, 6]);
+        await page.locator('#enrichment-button').click();
+        await page.getByRole('button', { name: 'Die 1: 1 → 6', exact: true }).click();
+        await page.getByRole('button', { name: /CHOOSE CHAIN: 2 × 6/ }).click();
+        await page.getByRole('button', { name: 'Bank 12 points', exact: true }).click();
+        assert.equal(await page.evaluate(() => gameManager.player.score), 12);
+        await page.getByRole('button', { name: /Next ·/ }).click();
+        await roll([3, 3, 1, 2, 4]);
+        await page.getByRole('button', { name: /CHOOSE CHAIN: 2 × 3/ }).click();
+        await roll([1, 2, 4]);
+        await page.locator('#controlRod-button').click();
+        assert.equal(await page.evaluate(() => gameManager.result.points), 6);
+        await page.getByRole('button', { name: /Next ·/ }).click();
+        await roll([5, 5, 1, 2, 3]);
+        await page.getByRole('button', { name: /CHOOSE CHAIN: 2 × 5/ }).click();
+        await roll([5, 6, 6]);
+        await page.locator('#fusion-button').click();
+        await page.getByRole('button', { name: 'Fuse 2 × 6 · bank 27', exact: true }).click();
+        assert.equal(await page.evaluate(() => gameManager.result.points), 27);
+        await page.getByRole('button', { name: /Next ·/ }).click();
+        await roll([4, 4, 4, 4, 4]);
+        assert.equal(await page.evaluate(() => gameManager.result.title), 'Critical Mass');
+        assert.equal(await page.evaluate(() => gameManager.result.points), 20);
+        assert.deepEqual(await page.locator('#held-dice .die').evaluateAll(dice => dice.map(d => d.children[2].querySelectorAll('.pip').length)), [4, 4, 4, 4, 4]);
+        // Exercise the full tumble animation, sound scheduling and interaction lock too.
+        await page.getByRole('button', { name: /Next ·/ }).click();
+        await page.emulateMedia({ reducedMotion: 'no-preference' });
+        await page.getByRole('button', { name: 'Gentle rolls', exact: true }).click();
+        await page.getByRole('button', { name: 'Sound off', exact: true }).click();
+        await rig([1, 1, 2, 3, 4]);
+        await page.locator('#actions').getByRole('button', { name: /Roll / }).click();
+        assert.equal(await page.locator('#new-game-button').isDisabled(), true);
+        await ready();
+        assert.equal(await page.evaluate(() => gameManager.rollNumber), 1);
+        assert.deepEqual(await page.locator('#active-dice .die').evaluateAll(dice => dice.map(d => d.children[2].querySelectorAll('.pip').length)), [1, 1, 2, 3, 4]);
+        await page.getByRole('button', { name: 'Sound on', exact: true }).click();
+        await page.getByRole('button', { name: 'Full rolls', exact: true }).click();
+        await page.emulateMedia({ reducedMotion: 'reduce' });
+        // Exact reported regression: 2 twos -> 3 threes must offer Bank 9 or Roll 2.
+        await newGame();
+        await roll([2, 2, 1, 4, 6]);
+        await page.getByRole('button', { name: /CHOOSE CHAIN: 2 × 2/ }).click();
+        await roll([3, 3, 3]);
+        await page.getByRole('button', { name: 'SWITCH CHAIN: 3 × 3, 9 points, 2 dice left', exact: true }).click();
+        assert.equal(await page.getByRole('button', { name: 'Bank 9 points', exact: true }).isVisible(), true);
+        assert.equal(await page.getByRole('button', { name: 'Roll 2 dice', exact: true }).isVisible(), true);
+        assert.equal(await page.locator('#held-dice .die-wrap').count(), 3);
+        assert.equal(await page.locator('#active-dice .die-wrap').count(), 2);
+        assert.equal(await page.evaluate(() => gameManager.player.turns), 0);
+        await page.screenshot({ path: path.join(screenshots, 'switch-to-three-continue.png'), fullPage: true });
+        await roll([3, 6]);
+        await page.getByRole('button', { name: /KEEP \+ EXTEND: 4 × 3/ }).click();
+        await page.getByRole('button', { name: 'Bank 12 points', exact: true }).click();
+        assert.equal(await page.evaluate(() => gameManager.player.score), 12);
+        // Responsive checks include actual dice extents, not just container widths.
+        await newGame(5);
+        await roll([2, 2, 5, 5, 1]);
+        for (const [width, height] of [[1920, 1080], [1366, 768], [1024, 768], [768, 1024], [390, 844], [320, 740]]) {
+            await page.setViewportSize({ width, height });
+            const layout = await page.evaluate(() => {
+                const board = document.getElementById('tabletop').getBoundingClientRect();
+                return { overflow: document.documentElement.scrollWidth > innerWidth, dice: [...document.querySelectorAll('#active-dice .die-wrap')].every(el => {
+                    const r = el.getBoundingClientRect(); return r.width > 20 && r.left >= board.left && r.right <= board.right && r.top >= board.top && r.bottom <= board.bottom;
+                }) };
             });
-        });
-    }
-
-    // Surface console + errors so we can see JS issues.
-    const pageErrors = [];
-    page.on('pageerror', (err) => {
-        pageErrors.push(String(err));
-        log('PAGE ERROR:', err.message);
-    });
-    page.on('console', (msg) => {
-        const t = msg.type();
-        if (t === 'error' || t === 'warning') {
-            log(`console.${t}:`, msg.text());
+            assert.equal(layout.overflow, false, 'No horizontal overflow at ' + width);
+            assert.equal(layout.dice, true, 'All dice within board at ' + width);
+            await page.screenshot({ path: path.join(screenshots, 'responsive-' + width + '.png'), fullPage: true });
         }
-    });
-
-    log('Loading', URL);
-    await page.goto(URL, { waitUntil: 'domcontentloaded' });
-    await page.waitForSelector('#start-game-button', { state: 'visible' });
-    await page.screenshot({ path: path.join(SHOT_DIR, '01-setup.png') });
-
-    // Start a 2-player game for a faster test.
-    await page.selectOption('#player-count', '2');
-    await page.click('#start-game-button');
-    await page.waitForSelector('#game-screen:not(.hidden)');
-    await page.waitForFunction(() => !document.getElementById('roll-button').classList.contains('hidden'));
-    await page.screenshot({ path: path.join(SHOT_DIR, '02-game-start.png') });
-    log('Game screen visible, roll button enabled.');
-
-    // Helper: read current game state.
-    const gameState = () => page.evaluate(() => {
-        const gm = window.gameManager;
-        if (!gm) return null;
-        return {
-            phase: gm.phase,
-            currentPlayer: gm.getCurrentPlayer()?.name,
-            chainNumber: gm.chainNumber,
-            chainLen: gm.chainDice.length,
-            potentialChains: (gm.potentialChains || []).map(c => ({ value: c.value, count: c.count })),
-            currentRoll: (gm.currentRoll || []).map(d => ({ i: d.index, v: d.value, aside: d.setAside })),
-            scores: gm.getPlayers().map(p => ({ name: p.name, score: p.score })),
-            rollHidden: document.getElementById('roll-button').classList.contains('hidden'),
-            continueHidden: document.getElementById('continue-button').classList.contains('hidden'),
-            stopHidden: document.getElementById('stop-button').classList.contains('hidden')
-        };
-    });
-
-    // Wait for the UI to settle: either dice finish rolling and we land
-    // in a clickable state, or the game reaches END.
-    const waitForStableUI = async () => {
-        await page.waitForFunction(() => {
-            const gm = window.gameManager;
-            if (!gm) return false;
-            if (gm.phase === 'END') return true;
-            const anyRolling = window.diceController.dice.some(d => d.userData.isRolling);
-            if (anyRolling) return false;
-            const rb = document.getElementById('roll-button');
-            const cb = document.getElementById('continue-button');
-            const sb = document.getElementById('stop-button');
-            const keep = document.getElementById('keep-chain-button');
-            const anyVisible = (b) => b && !b.classList.contains('hidden');
-            return anyVisible(rb) || (anyVisible(cb) && anyVisible(sb)) || !!keep || gm.phase === 'CHAIN_SELECTION';
-        }, null, { timeout: 15000 });
-    };
-
-    // --- Turn 1: roll and drive the game for a few turns ---
-    let turnsDriven = 0;
-    const MAX_TURNS = 12;
-    let rolls = 0;
-    let decisionsTaken = 0;
-    let chainSelections = 0;
-
-    while (turnsDriven < MAX_TURNS) {
-        const s0 = await gameState();
-        if (!s0) throw new Error('gameManager not on window');
-        log(`Step: phase=${s0.phase} player=${s0.currentPlayer} chain=${s0.chainLen}x${s0.chainNumber}`);
-
-        if (s0.phase === 'END') {
-            log('Phase END reached.');
-            break;
-        }
-
-        if (s0.phase === 'ROLL') {
-            // Button should be visible.
-            if (s0.rollHidden) throw new Error(`ROLL phase but roll button hidden!`);
-            await page.click('#roll-button');
-            rolls++;
-            await waitForStableUI();
-            continue;
-        }
-
-        if (s0.phase === 'CHAIN_SELECTION') {
-            chainSelections++;
-            if (!s0.potentialChains.length) throw new Error('CHAIN_SELECTION with no potentialChains');
-            // Select the highest-value*count chain.
-            const best = s0.potentialChains.slice().sort((a, b) => b.value * b.count - a.value * a.count)[0];
-            await page.evaluate((chain) => {
-                const gm = window.gameManager;
-                const indices = gm.currentRoll
-                    .filter(d => !d.setAside && d.value === chain.value)
-                    .map(d => d.index);
-                gm.selectChain(chain.value, indices);
-            }, best);
-            await waitForStableUI();
-            continue;
-        }
-
-        if (s0.phase === 'DECISION') {
-            decisionsTaken++;
-            // Verify Stop + Continue both visible.
-            if (s0.continueHidden || s0.stopHidden) {
-                throw new Error(`DECISION phase but buttons hidden: continue=${s0.continueHidden} stop=${s0.stopHidden}`);
+        // Keyboard, modal close, audio availability, and a repeated new-game cycle.
+        await page.setViewportSize({ width: 1440, height: 1050 });
+        await page.getByRole('button', { name: /How to play/ }).click();
+        assert.equal(await page.locator('#rules-dialog').isVisible(), true);
+        await page.keyboard.press('Escape');
+        assert.equal(await page.locator('#rules-dialog').isVisible(), false);
+        await page.getByRole('button', { name: 'Sound off', exact: true }).click();
+        assert.equal(await page.getByRole('button', { name: 'Sound on', exact: true }).getAttribute('aria-pressed'), 'true');
+        await page.getByRole('button', { name: 'Sound on', exact: true }).click();
+        // Complete games through visible controls; opponents use the real scheduler.
+        for (const [count, mode] of [[2, 'local'], [3, 'local'], [2, 'computer']]) {
+            await newGame(count, mode);
+            await page.evaluate(() => {
+                let seed = 41;
+                gameManager.random = () => { seed = (Math.imul(1664525, seed) + 1013904223) >>> 0; return seed / 4294967296; };
+                const original = window.setTimeout;
+                window.setTimeout = (fn, delay, ...args) => original(fn, delay >= 1000 && delay <= 2000 ? 20 : delay, ...args);
+            });
+            let moves = 0;
+            while (await page.evaluate(() => gameManager.phase !== 'GAME_OVER')) {
+                assert.ok(moves++ < 900);
+                if (await page.evaluate(() => gameManager.player.computer)) { await page.waitForTimeout(50); continue; }
+                await ready();
+                const phase = await page.evaluate(() => gameManager.phase);
+                if (phase === 'REVIEW') {
+                    const choices = page.locator('.choice');
+                    if (await choices.count()) await choices.last().click();
+                    else await page.locator('#actions button').first().click();
+                } else if (phase === 'DECISION') await page.getByRole('button', { name: /^Bank / }).click();
+                else if (phase !== 'GAME_OVER') await page.locator('#actions button').first().click();
             }
-            if (decisionsTaken === 1) {
-                await page.screenshot({ path: path.join(SHOT_DIR, '03-decision.png') });
-            }
-            // Stop once chain is >= 3 or value*count >= 12.
-            const shouldStop = s0.chainLen >= 3 || (s0.chainNumber || 0) * s0.chainLen >= 12;
-            if (shouldStop) {
-                log(`  -> STOP (chain=${s0.chainLen}x${s0.chainNumber})`);
-                await page.click('#stop-button');
-                turnsDriven++;
-            } else {
-                log(`  -> CONTINUE (chain=${s0.chainLen}x${s0.chainNumber})`);
-                await page.click('#continue-button');
-            }
-            await waitForStableUI();
-            continue;
+            assert.ok(await page.getByRole('button', { name: 'Play again', exact: true }).isVisible());
+            console.log('Complete browser game:', count, mode, 'steps:', moves);
         }
-
-        if (s0.phase === 'CHAIN_SWITCH_DECISION') {
-            // Click keep-chain-button (simpler path).
-            const btn = await page.$('#keep-chain-button');
-            if (!btn) throw new Error('CHAIN_SWITCH_DECISION but no keep-chain-button');
-            await btn.click();
-            await waitForStableUI();
-            continue;
-        }
-
-        throw new Error(`Unknown phase: ${s0.phase}`);
-    }
-
-    await page.screenshot({ path: path.join(SHOT_DIR, '04-after-turns.png') });
-
-    // --- Final checks ---
-    const finalState = await gameState();
-    log('Final state:', JSON.stringify(finalState, null, 2));
-    log(`Rolls: ${rolls}, decisions: ${decisionsTaken}, chain selections: ${chainSelections}, turns driven: ${turnsDriven}`);
-    log(`Page errors: ${pageErrors.length}`);
-    if (pageErrors.length) {
-        for (const e of pageErrors) log('   -', e);
-    }
-
-    // Die-face-vs-state consistency check: ensure the value reported by
-    // getDiceValueFromRotation matches the die's stored finalValue for all
-    // dice (this is the bug we claimed to fix).
-    const faceCheck = await page.evaluate(() => {
-        const dc = window.diceController;
-        if (!dc) return { error: 'no diceController' };
-        const mismatches = [];
-        dc.dice.forEach((die, idx) => {
-            const stored = die.userData.finalValue;
-            const observed = window.getDiceValueFromRotation(die.quaternion);
-            if (stored && stored !== observed) {
-                mismatches.push({ idx, stored, observed });
-            }
-        });
-        return { mismatches, diceCount: dc.dice.length };
-    });
-    log('Face consistency:', JSON.stringify(faceCheck));
-
-    await browser.close();
-
-    let failed = false;
-    if (pageErrors.length) { log('FAIL: page errors occurred'); failed = true; }
-    if (faceCheck.mismatches && faceCheck.mismatches.length) { log('FAIL: face mismatch'); failed = true; }
-    if (turnsDriven === 0) { log('FAIL: no turns completed'); failed = true; }
-
-    log(failed ? 'RESULT: FAILED' : 'RESULT: PASSED');
-    process.exit(failed ? 1 : 0);
-})().catch(err => {
-    console.error('Fatal:', err);
-    process.exit(2);
-});
+        await page.screenshot({ path: path.join(screenshots, '05-game-complete.png'), fullPage: true });
+        assert.deepEqual(errors, []);
+        console.log('Browser checks passed: pairing, extension + switch, recycled dice, reported triple-switch continuation, all enhancements, turn resets, Critical Mass, six viewport sizes, audio toggle, dialogs, and complete games. No page errors.');
+    } finally { await browser.close(); }
+})().catch(error => { console.error(error); process.exitCode = 1; });
