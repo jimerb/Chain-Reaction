@@ -180,7 +180,18 @@ fs.mkdirSync(screenshots, { recursive: true });
             console.log('Complete browser game:', count, mode, 'steps:', moves);
         }
         await page.screenshot({ path: path.join(screenshots, '05-game-complete.png'), fullPage: true });
+        // A browser may leave AudioContext.resume() pending forever. The roll
+        // must still resolve when sound is on.
+        await page.locator('#victory-replay').click();
+        await page.getByRole('button', { name: 'Take your seats' }).click();
+        if (await page.getByRole('button', { name: 'Sound off', exact: true }).count())
+            await page.getByRole('button', { name: 'Sound off', exact: true }).click();
+        await page.evaluate(() => { diceController.audio = { state: 'suspended', resume: () => new Promise(() => {}) }; });
+        await rig([2, 2, 1, 3, 4]);
+        await page.locator('#actions').getByRole('button', { name: /Roll / }).click();
+        await page.waitForFunction(() => gameManager.rollNumber === 1 && !document.getElementById('new-game-button').disabled, undefined, { timeout: 5000 });
+        assert.equal(await page.locator('.choice').count(), 1, 'A blocked audio resume cannot prevent dice choices');
         assert.deepEqual(errors, []);
-        console.log('Browser checks passed: pairing, extension + switch, recycled dice, reported triple-switch continuation, all enhancements, turn resets, Critical Mass, six viewport sizes, audio toggle, dialogs, and complete games. No page errors.');
+        console.log('Browser checks passed: pairing, extension + switch, recycled dice, reported triple-switch continuation, all enhancements, turn resets, Critical Mass, six viewport sizes, audio toggle and fallback, dialogs, and complete games. No page errors.');
     } finally { await browser.close(); }
 })().catch(error => { console.error(error); process.exitCode = 1; });

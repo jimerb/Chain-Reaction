@@ -37,7 +37,14 @@
             if (!this.sound) return;
             try {
                 if (!this.audio) this.audio = new (window.AudioContext || window.webkitAudioContext)();
-                if (this.audio.state === 'suspended') await this.audio.resume();
+                if (this.audio.state === 'suspended') {
+                    // Some embedded browsers leave resume() pending until a later
+                    // gesture. Audio must never hold up the dice or controls.
+                    await Promise.race([
+                        this.audio.resume().catch(() => { this.sound = false; }),
+                        new Promise(resolve => setTimeout(resolve, 150))
+                    ]);
+                }
             } catch { this.sound = false; }
         }
         stopFanfare() {
