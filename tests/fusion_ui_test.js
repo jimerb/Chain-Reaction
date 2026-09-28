@@ -43,7 +43,7 @@ const fs = require('node:fs');
         await page.getByRole('button', { name: /How to play/ }).click();
         const rules = await page.locator('#rules-dialog').textContent();
         assert.match(rules, /two different matching strands/);
-        assert.match(rules, /One pair and unrelated single dice cannot be fused/);
+        assert.match(rules, /Rolling 6, 2, 3 instead gives no second pair, so Fusion is unavailable/);
         await page.getByRole('button', { name: 'Close rules', exact: true }).click();
         await ada([6, 6, 2]);
         assert.deepEqual(await page.evaluate(() => computerAction(gameManager)), { type: 'fusion', value: 6 });

@@ -11,6 +11,7 @@ const fs = require('node:fs');
         const errors = []; page.on('pageerror', e => errors.push(e.message));
         await page.goto(process.env.TEST_URL || 'http://localhost:8000');
         await page.getByRole('button', { name: 'Take your seats' }).click();
+        await page.getByRole('button', { name: 'Sound on', exact: true }).click();
         // Score through the real Bank control. Even with reduced motion enabled,
         // the instrument must show intermediate readings instead of jumping.
         for (const motion of ['no-preference', 'reduce']) {

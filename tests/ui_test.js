@@ -15,7 +15,10 @@ fs.mkdirSync(screenshots, { recursive: true });
         await page.goto(URL);
         assert.equal(await page.locator('#target-score').inputValue(), '100');
         assert.equal(await page.locator('#play-mode option').count(), 2);
+        assert.equal(await page.locator('#play-mode').inputValue(), 'computer');
+        assert.equal(await page.getByRole('button', { name: 'Sound on', exact: true }).getAttribute('aria-pressed'), 'true');
         await page.screenshot({ path: path.join(screenshots, '01-setup-desktop.png'), fullPage: true });
+        await page.locator('#play-mode').selectOption('local');
         await page.getByRole('button', { name: 'Take your seats' }).click();
         async function rig(values) { await page.evaluate(values => { let i = 0; window.gameManager.random = () => (values[i++] - .5) / 6; }, values); }
         async function ready() { await page.waitForFunction(() => !document.getElementById('new-game-button').disabled); }
@@ -101,7 +104,6 @@ fs.mkdirSync(screenshots, { recursive: true });
         await page.getByRole('button', { name: /Next ·/ }).click();
         await page.emulateMedia({ reducedMotion: 'no-preference' });
         await page.getByRole('button', { name: 'Gentle rolls', exact: true }).click();
-        await page.getByRole('button', { name: 'Sound off', exact: true }).click();
         await rig([1, 1, 2, 3, 4]);
         await page.locator('#actions').getByRole('button', { name: /Roll / }).click();
         assert.equal(await page.locator('#new-game-button').isDisabled(), true);

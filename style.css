@@ -964,8 +964,37 @@ dialog strong {
   font-size:10px;
   margin:0
 }
-.rules-steps {
-  padding-left:20px
+.rules-dialog {width:min(820px,calc(100% - 28px));padding:32px 36px;overflow:auto}
+.rules-dialog h2 {font-size:clamp(30px,5vw,43px);margin:16px 0 8px}
+.rules-dialog .rules-lede {font-size:16px;line-height:1.55;color:#e0ebd6;max-width:650px;margin-bottom:27px}
+.rules-section {border-top:1px solid #879a6b48;padding:20px 0 23px}
+.rules-section h3 {font-size:18px;letter-spacing:-.25px;color:var(--lime);margin:0 0 15px}
+.rules-section h4 {font-size:14px;color:#f2f7e9;margin:0 0 6px}
+.rules-section p {line-height:1.55;margin:0}
+.rules-cards {list-style:none;display:grid;gap:9px;margin:0 0 16px;padding:0}
+.rules-cards li {display:flex;gap:14px;align-items:flex-start;margin:0;padding:13px 15px;border:1px solid #6f826132;border-radius:10px;background:#243b2e66}
+.rules-cards li strong {font-size:14px}
+.rules-cards li p {font-size:13px;margin-top:3px}
+.rules-step-number {font-size:11px;letter-spacing:1px;color:var(--lime);font-weight:700;padding-top:3px}
+.rules-example {padding:17px 18px;border:1px solid #bdce874d;border-radius:12px;background:#bacf8120}
+.rules-example-label {display:block;font-size:9px;letter-spacing:1.7px;color:var(--lime);margin-bottom:12px}
+.rules-faces {display:flex;gap:6px;margin-bottom:12px}
+.rules-faces span {width:30px;height:30px;display:grid;place-items:center;border-radius:5px;background:#f0f1df;color:#294033;font-weight:750;box-shadow:inset -3px -4px #b9c4aa,0 2px 5px #0004}
+.rules-faces span:nth-child(n+4) {background:#d9eeae}
+.rules-example p {font-size:13px}
+.rules-grid {display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:10px}
+.rules-grid article {padding:16px;border:1px solid #879a6b35;border-radius:11px;background:#ffffff06}
+.rules-grid article p {font-size:13px}
+.rules-note {padding:14px 16px;margin-top:12px!important;border-left:3px solid #c6df8b;background:#c6df8b11;border-radius:0 8px 8px 0;font-size:13px}
+.rules-abilities {display:grid;gap:9px;margin-top:16px}
+.rules-abilities article {display:flex;gap:14px;align-items:flex-start;padding:15px;border:1px solid #879a6b35;border-radius:10px;background:#ffffff06}
+.rules-abilities article p {font-size:13px}
+.rules-ability-mark {width:30px;height:30px;flex:none;display:grid;place-items:center;border:1px solid #9fbd77;border-radius:50%;color:var(--lime);font-family:Georgia,serif}
+@media(max-width:560px) {
+  .rules-dialog {padding:22px 18px}
+  .rules-dialog .rules-lede {font-size:14px}
+  .rules-grid {grid-template-columns:1fr}
+  .rules-grid article,.rules-abilities article {padding:13px}
 }
 .rolling .die-value {
   opacity:0

@@ -18,7 +18,7 @@ The authoritative rules are in [Chain Reaction Game Conceptual Overview](docs/Ch
 | Camera | OrbitControls allowed table rotation and tilt. | Fixed tabletop. Only dice animate. |
 | Dependencies | Remote graphics libraries and fonts were essential; the old UI test also expected nonexistent local vendor files and a Linux browser path. | Self-contained runtime. Portable test configuration uses installed Chrome on Windows or Playwright Chromium elsewhere. |
 | Dice presentation | Small scene, weak hierarchy, confusing highlights. | Large ivory dice with scoring face on top, die IDs, a separate held tray, and a rolling pool. |
-| Audio | No coherent roll sound tied to the dice sequence. | Optional layered, filtered clatter scheduled during rolling; audio starts only after user interaction. Sound defaults off. |
+| Audio | No coherent roll sound tied to the dice sequence. | Layered, filtered clatter accompanies rolling, with a short victory chime. Sound defaults on, begins only after user interaction, and can be muted. |
 | Simultaneous outcomes | Extending the chain could return before presenting a different pair. | Both alternatives are offered with points and dice left. |
 | Missed chain | Old keep/switch flow and written examples could imply that “keep” banked a chain that had missed. | Keep is legal only with a fresh match. Switching, rescue, or meltdown are the choices after a miss. |
 | Switching continuity | Removing old dice could end a turn immediately after choosing a new triple. | Old chain dice return to the rolling pool; only the new chain counts, and the player chooses whether to continue. |
