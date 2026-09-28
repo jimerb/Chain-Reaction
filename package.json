@@ -7,7 +7,7 @@
     "start": "node server.js",
     "test": "node --test tests/engine.test.js",
     "test:simulation": "node tests/sim_play.js",
-    "test:ui": "node tests/ui_test.js",
+    "test:ui": "node tests/ui_test.js && node tests/reactor_ui_test.js && node tests/fusion_ui_test.js && node tests/victory_ui_test.js",
     "analyze:balance": "node tests/balance.js"
   },
   "devDependencies": {

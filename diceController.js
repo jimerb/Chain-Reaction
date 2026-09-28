@@ -32,13 +32,35 @@
         return wrap;
     }
     class DiceController {
-        constructor() { this.sound = false; this.audio = null; this.gentleMotion = false; }
+        constructor() { this.sound = true; this.audio = null; this.gentleMotion = false; }
         async unlockAudio() {
             if (!this.sound) return;
             try {
                 if (!this.audio) this.audio = new (window.AudioContext || window.webkitAudioContext)();
                 if (this.audio.state === 'suspended') await this.audio.resume();
             } catch { this.sound = false; }
+        }
+        stopFanfare() {
+            (this.fanfareNotes || []).forEach(note => { try { note.stop(); } catch {} });
+            this.fanfareNotes = [];
+        }
+        victoryFanfare() {
+            this.stopFanfare();
+            if (!this.sound || !this.audio || this.audio.state !== 'running') return;
+            const ctx = this.audio, now = ctx.currentTime;
+            // A short ascending reactor chime, with a soft low core beneath it.
+            [[65.41, 0, 2.5, .035], [261.63, 0, .65, .07], [392, .24, .65, .06],
+                [523.25, .48, .8, .06], [659.25, .72, 1.2, .05], [783.99, .96, 1.4, .05], [1046.5, 1.2, 1.2, .035]].forEach(([frequency, delay, duration, level]) => {
+                const tone = ctx.createOscillator(), gain = ctx.createGain();
+                tone.type = 'sine'; tone.frequency.value = frequency;
+                gain.gain.setValueAtTime(0, now + delay);
+                gain.gain.linearRampToValueAtTime(level, now + delay + .08);
+                gain.gain.exponentialRampToValueAtTime(.0001, now + delay + duration);
+                tone.connect(gain).connect(ctx.destination);
+                tone.start(now + delay); tone.stop(now + delay + duration);
+                tone.onended = () => { tone.disconnect(); gain.disconnect(); };
+                this.fanfareNotes.push(tone);
+            });
         }
         clatter(landings) {
             if (!this.sound || !this.audio || this.audio.state !== 'running') return;

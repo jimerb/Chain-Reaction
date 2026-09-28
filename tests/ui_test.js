@@ -21,6 +21,7 @@ fs.mkdirSync(screenshots, { recursive: true });
         async function ready() { await page.waitForFunction(() => !document.getElementById('new-game-button').disabled); }
         async function roll(values, name = /Roll /) { await rig(values); await page.locator('#actions').getByRole('button', { name }).click(); await ready(); }
         async function newGame(count = 2, mode = 'local') {
+            if (await page.locator('#victory-dialog').isVisible()) await page.locator('#victory-review').click();
             await page.getByRole('button', { name: 'New game', exact: true }).click();
             await page.getByRole('button', { name: 'New table', exact: true }).click();
             await page.locator('#player-count').selectOption(String(count));
@@ -87,7 +88,9 @@ fs.mkdirSync(screenshots, { recursive: true });
         await page.getByRole('button', { name: /CHOOSE CHAIN: 2 × 5/ }).click();
         await roll([5, 6, 6]);
         await page.locator('#fusion-button').click();
-        await page.getByRole('button', { name: 'Fuse 2 × 6 · bank 27', exact: true }).click();
+        await page.getByRole('button', { name: 'Fuse 3 × 5 + 2 × 6 · bank 27', exact: true }).click();
+        assert.equal(await page.locator('.fusion-strand').count(), 2);
+        assert.deepEqual(await page.locator('.fusion-strand').evaluateAll(groups => groups.map(group => group.querySelectorAll('.die').length)), [3, 2]);
         assert.equal(await page.evaluate(() => gameManager.result.points), 27);
         await page.getByRole('button', { name: /Next ·/ }).click();
         await roll([4, 4, 4, 4, 4]);
@@ -170,7 +173,8 @@ fs.mkdirSync(screenshots, { recursive: true });
                 } else if (phase === 'DECISION') await page.getByRole('button', { name: /^Bank / }).click();
                 else if (phase !== 'GAME_OVER') await page.locator('#actions button').first().click();
             }
-            assert.ok(await page.getByRole('button', { name: 'Play again', exact: true }).isVisible());
+            assert.ok(await page.locator('#victory-replay').isVisible());
+            assert.equal(await page.locator('#victory-name').textContent(), await page.evaluate(() => gameManager.players[gameManager.winner].name + ' wins!'));
             console.log('Complete browser game:', count, mode, 'steps:', moves);
         }
         await page.screenshot({ path: path.join(screenshots, '05-game-complete.png'), fullPage: true });

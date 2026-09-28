@@ -98,6 +98,8 @@ With an established chain and a newly rolled matching group of a different face,
 
 Then end the turn immediately. The second group needs at least two dice. Old chain dice released by switching must be rerolled before they can count.
 
+Both strands must be real matching groups of at least two dice, with different face values. A held pair of 5s plus a roll of 6, 2, 3 cannot be fused. A held pair of 5s plus 6, 6, 2 can: bank 10 + 12 = **22**, ignoring the unmatched 2. Human and computer players use exactly the same eligibility check. The Fusion result shows both scored strands.
+
 Example: hold two 5s, then roll 5, 6, 6. Fusion banks three 5s plus two 6s: 15 + 12 = **27**.
 
 On an opening split, choose one chain first, then you may fuse the other group from that same roll. Choosing the first group does not consume an enhancement.

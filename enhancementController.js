@@ -6,8 +6,8 @@
         if (game.phase === 'REVIEW') {
             const choices = game.choices().sort((a, b) => b.score - a.score || a.count - b.count);
             if (game.canUse('fusion')) {
-                const alt = game.alternatives.sort((a, b) => b.value * b.ids.length - a.value * a.ids.length)[0];
-                const score = game.chainScore + game.matches.length * game.chain + alt.value * alt.ids.length;
+                const alt = game.fusionOptions.sort((a, b) => b.score - a.score)[0];
+                const score = alt.score;
                 if (score >= 18 || !choices.length || score + game.player.score >= game.target) return { type: 'fusion', value: alt.value };
             }
             if (!choices.length) {
@@ -19,8 +19,8 @@
         }
         if (game.phase === 'DECISION') {
             if (game.canUse('fusion')) {
-                const alt = game.alternatives.sort((a, b) => b.value * b.ids.length - a.value * a.ids.length)[0];
-                const score = game.chainScore + alt.value * alt.ids.length;
+                const alt = game.fusionOptions.sort((a, b) => b.score - a.score)[0];
+                const score = alt.score;
                 if (score >= 18 || game.player.score + score >= game.target) return { type: 'fusion', value: alt.value };
             }
             if (game.canUse('enrichment') && (game.held.length >= 4 || game.player.score + game.chainScore + game.chain >= game.target)) return { type: 'enrich', ...game.enrichmentOptions()[0] };

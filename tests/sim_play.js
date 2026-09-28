@@ -23,10 +23,20 @@ for (let seed = 1; seed <= 1000; seed++) {
         if (seed % 2 === 0 && g.phase === 'DECISION' && random() < .5) a = { type: 'roll' };
         assert.ok(a, 'Every live state must have a legal action');
         if (a.type === 'choose' && g.choices().find(c => c.value === a.value)?.kind === 'switch') stats.switches++;
-        if (a.type === 'fusion') stats.fusions++;
+        let fusedScore;
+        if (a.type === 'fusion') {
+            stats.fusions++;
+            const first = g.dice.filter(d => d.state === 'held' || (g.phase === 'REVIEW' && g.rolledIds.includes(d.id) && d.value === g.chain));
+            const second = g.dice.filter(d => d.state === 'active' && g.rolledIds.includes(d.id) && d.value === a.value);
+            assert.ok(first.length >= 2 && first.every(d => d.value === g.chain), 'Fusion first strand must match');
+            assert.ok(second.length >= 2 && a.value !== g.chain, 'Fusion requires a different second pair');
+            assert.equal(new Set([...first, ...second].map(d => d.id)).size, first.length + second.length, 'A die cannot score in both strands');
+            fusedScore = first.length * g.chain + second.length * a.value;
+        }
         if (a.type === 'enrich') stats.enrichments++;
         const beforeHeld = g.held.map(d => ({ ...d }));
         apply(g, a);
+        if (a.type === 'fusion') assert.equal(g.result.points, fusedScore, 'Only the two matching strands score');
         assert.equal(g.dice.length, 5);
         assert.equal(new Set(g.dice.map(d => d.id)).size, 5);
         assert.ok(g.dice.every(d => d.value >= 1 && d.value <= 6 && ['held', 'active'].includes(d.state)));

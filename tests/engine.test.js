@@ -2,6 +2,7 @@
 const { test } = require('node:test');
 const assert = require('node:assert/strict');
 const { GameManager } = require('../gameManager');
+const { computerAction } = require('../enhancementController');
 const game = (options = {}) => new GameManager({ ...options });
 const chain = (roll = [3, 3, 1, 2, 6], value = 3, options) => { const g = game(options); g.roll(roll); g.choose(value); return g; };
 
@@ -78,6 +79,57 @@ test('Fusion includes new matches plus the selected replacement pair', () => {
 });
 test('opening split can fuse after choosing a chain', () => {
     const g = chain([2, 2, 2, 6, 6], 2); assert.equal(g.canUse('fusion'), true); g.fusion(6); assert.equal(g.player.score, 18);
+});
+test('Fusion rejects a pair plus singles for Ada without spending a token or scoring', () => {
+    for (const later of [false, true]) {
+        const g = game({ names: ['Jim', 'Ada'], computers: true }); g.current = 1;
+        g.roll([5, 5, 6, 2, 3]); g.choose(5);
+        if (later) g.roll([6, 2, 3]);
+        const before = JSON.stringify(g);
+        assert.equal(g.canUse('fusion'), false);
+        for (let face = 1; face <= 6; face++) assert.equal(g.fusion(face), false);
+        assert.equal(JSON.stringify(g), before, 'Rejected Fusion must leave the entire state unchanged');
+        assert.notEqual(computerAction(g).type, 'fusion');
+    }
+});
+test('Fusion requires two actual matching strands and records exactly which dice scored', () => {
+    const g = chain([5, 5, 1, 2, 3], 5);
+    g.roll([6, 6, 2]);
+    assert.equal(g.fusion(6), true);
+    assert.equal(g.result.points, 22);
+    assert.deepEqual(g.result.strands, [{ value: 5, ids: [0, 1] }, { value: 6, ids: [2, 3] }]);
+    const result = JSON.stringify(g.result);
+    g.nextTurn();
+    assert.equal(JSON.stringify(g.history[0]), result, 'Evidence survives turn handoff');
+    const malformed = chain([5, 5, 6, 6, 2], 5);
+    malformed.dice[1].state = 'active';
+    assert.equal(malformed.canUse('fusion'), false, 'A single held die is not a first strand');
+});
+test('Ada can only fuse genuine different pairs across every continuation roll', () => {
+    let examined = 0;
+    for (let face = 1; face <= 6; face++) {
+        for (const heldCount of [2, 3, 4]) {
+            const other = face % 6 + 1;
+            const opening = Array(heldCount).fill(face).concat(Array(5 - heldCount).fill(other));
+            for (let n = 0; n < 6 ** (5 - heldCount); n++) {
+                let code = n;
+                const values = Array.from({ length: 5 - heldCount }, () => { const value = code % 6 + 1; code = Math.floor(code / 6); return value; });
+                const g = chain(opening, face, { computers: true }); g.current = 1;
+                g.roll(values);
+                const secondFaces = [...new Set(values)].filter(v => v !== face && values.filter(x => x === v).length >= 2);
+                assert.equal(g.canUse('fusion'), g.phase === 'REVIEW' && secondFaces.length > 0);
+                const action = computerAction(g);
+                if (action?.type === 'fusion') {
+                    assert.ok(secondFaces.includes(action.value));
+                    assert.equal(g.fusion(action.value), true);
+                    assert.ok(g.result.strands.every(s => s.ids.length >= 2 && s.ids.every(id => g.dice[id].value === s.value)));
+                    assert.equal(new Set(g.result.strands.flatMap(s => s.ids)).size, g.result.strands.flatMap(s => s.ids).length);
+                }
+                examined++;
+            }
+        }
+    }
+    assert.equal(examined, 1548);
 });
 test('released old faces cannot immediately count as a fresh Fusion pair', () => {
     const g = chain(); g.roll([5, 5, 2]); g.choose(5);

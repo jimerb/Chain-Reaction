@@ -16,7 +16,7 @@
 <body>
   <header class="masthead">
     <a class="brand" href="./" aria-label="Chain Reaction home"><img src="logo.png" alt=""><span>CHAIN REACTION<small>A GAME OF CALCULATED RISK</small></span></a>
-    <nav aria-label="Game tools"><button id="motion-button" class="quiet" aria-pressed="false" title="Switch between full tumbling and gentle dice motion">Full rolls</button><button id="sound-button" class="quiet" aria-pressed="false">Sound off</button><button id="help-button" class="quiet">How to play <span aria-hidden="true">↗</span></button><button id="new-game-button" class="quiet" hidden>New game</button></nav>
+    <nav aria-label="Game tools"><button id="motion-button" class="quiet" aria-pressed="false" title="Switch between full tumbling and gentle dice motion">Full rolls</button><button id="sound-button" class="quiet" aria-pressed="true">Sound on</button><button id="help-button" class="quiet">How to play <span aria-hidden="true">↗</span></button><button id="new-game-button" class="quiet" hidden>New game</button></nav>
   </header>
   <main>
     <section id="setup-screen" class="setup">
@@ -25,7 +25,7 @@
         <div class="three-steps"><div><b>01</b><span>Find a pair</span></div><div><b>02</b><span>Build your chain</span></div><div><b>03</b><span>Know when to stop</span></div></div>
       </div>
       <form id="setup-form" class="setup-card"><p class="eyebrow">OPEN A TABLE</p><h2>Let's play.</h2><p class="muted">Five dice. A little nerve. Your call.</p>
-        <label for="play-mode">Who’s at the table?</label><select id="play-mode"><option value="local">Friends · pass and play</option><option value="computer">You vs. the computer</option></select>
+        <label for="play-mode">Who’s at the table?</label><select id="play-mode"><option value="local">Friends · pass and play</option><option value="computer" selected>You vs. the computer</option></select>
         <div class="form-row"><div><label for="player-count">Players</label><select id="player-count"><option>2</option><option>3</option><option>4</option><option>5</option></select></div><div><label for="target-score">Target score</label><select id="target-score"><option value="50">50 · Quick</option><option value="100" selected>100 · Standard</option><option value="200">200 · Long</option></select></div></div>
         <div id="player-names"></div>
         <label class="check-label"><input type="checkbox" id="use-enhancements" checked><span>Play with enhancements<small>Three one-use abilities per player.</small></span></label>
@@ -34,7 +34,7 @@
       </form>
     </section>
     <section id="game-screen" class="game-layout" hidden>
-      <aside class="sidebar"><div class="section-heading"><h2>The table</h2><span id="round-label" class="chip"></span></div><div id="scoreboard"></div>
+      <aside class="sidebar"><div class="section-heading"><h2>Reactor status</h2><span id="round-label" class="chip"></span></div><div id="scoreboard"></div>
         <div class="session-goal"><span>ENERGY TARGET</span><strong id="target-label">100</strong><small>Finish the round · highest score wins</small></div>
         <section class="log"><h3>Last at the table</h3><ol id="history"><li class="muted">The first move is yours.</li></ol></section>
       </aside>
@@ -48,16 +48,37 @@
           <div class="table-footline"><span id="table-note">Dice stay on the table. You decide how far to go.</span><span aria-hidden="true">◆ ◆ ◆</span></div>
         </section>
         <section class="decision-panel" aria-labelledby="decision-title"><div class="decision-copy" aria-live="polite" aria-atomic="true"><p class="eyebrow" id="decision-kicker">YOUR MOVE</p><h2 id="decision-title"></h2><p id="decision-detail"></p></div><div id="choices" class="choices"></div><div id="actions" class="actions"></div><p id="risk-note" class="risk-note"></p></section>
-        <section id="enhancement-panel" class="enhancement-panel" aria-label="Enhancements"><div class="section-heading"><h3>Your enhancements</h3><span>ONCE EACH · ONE PER ROLL</span></div><div id="enhancements" class="enhancements"></div><div id="enhancement-picker" class="enhancement-picker" hidden></div></section>
         <p id="storage-notice" class="fine-print" hidden></p>
       </div>
     </section>
   </main>
+  <div id="enhancement-tooltip" class="enhancement-tooltip" role="tooltip" hidden></div>
+  <dialog id="enhancement-picker" class="enhancement-picker" aria-label="Choose enhancement"></dialog>
+  <dialog id="victory-dialog" class="victory-dialog" aria-labelledby="victory-name" aria-describedby="victory-summary">
+    <div class="victory-scan" aria-hidden="true"></div>
+    <p class="eyebrow victory-kicker">REACTION COMPLETE · REACTOR STABILIZED</p>
+    <div class="victory-hero">
+      <div class="victory-core" aria-hidden="true">
+        <svg viewBox="0 0 280 280"><defs><radialGradient id="core-glow"><stop stop-color="#efffba"/><stop offset=".3" stop-color="#d4ee8b" stop-opacity=".55"/><stop offset="1" stop-color="#a9ec76" stop-opacity="0"/></radialGradient></defs>
+          <circle class="core-bloom" cx="140" cy="140" r="130" fill="url(#core-glow)"/>
+          <g fill="none"><circle cx="140" cy="140" r="121" stroke="#6d8860"/><circle cx="140" cy="140" r="112" stroke="#aac777" stroke-width="3" stroke-dasharray="2 12"/>
+          <g class="core-ring"><circle cx="140" cy="140" r="98" stroke="#d4ee8b" stroke-width="5" stroke-dasharray="145 60"/></g>
+          <g class="core-orbits" stroke="#e8faba" stroke-width="2"><ellipse cx="140" cy="140" rx="76" ry="28"/><ellipse cx="140" cy="140" rx="76" ry="28" transform="rotate(60 140 140)"/><ellipse cx="140" cy="140" rx="76" ry="28" transform="rotate(120 140 140)"/></g></g>
+          <circle cx="140" cy="140" r="17" fill="#f1ffd2"/><circle cx="140" cy="140" r="7" fill="#405b32"/>
+          <circle cx="44" cy="140" r="5" fill="#edc487"/><circle cx="236" cy="140" r="5" fill="#edc487"/>
+        </svg>
+      </div>
+      <div class="victory-copy"><p class="victory-tag">MASTER OF THE REACTOR</p><h2 id="victory-name" tabindex="-1" autofocus></h2><p id="victory-summary"></p><div class="victory-energy"><strong id="victory-score"></strong><span>ENERGY BANKED</span></div></div>
+    </div>
+    <div class="victory-standings"><p class="eyebrow">FINAL STANDINGS</p><ol id="victory-ranks"></ol></div>
+    <div class="actions victory-actions"><button id="victory-replay" class="primary">Play again</button><button id="victory-review" class="secondary">Review table</button></div>
+  </dialog>
   <footer><span>CHAIN REACTION</span><span>Fortune favors the calculated.</span></footer>
   <dialog id="rules-dialog"><div class="dialog-top"><p class="eyebrow">THE OPERATOR’S HANDBOOK</p><button id="close-rules" class="quiet" aria-label="Close rules">Close ×</button></div><h2>Good rolls. Better decisions.</h2>
     <p>Roll five dice. Choose <strong>any matching group of two or more</strong> as your chain. Bank <strong>face value × dice count</strong>, or roll the remaining dice to grow it.</p>
     <ol class="rules-steps"><li><strong>Choose your pairing.</strong> On 2, 2, 2, 6, 6, you can take three 2s for 6 points or two 6s for 12. Neither group is selected for you.</li><li><strong>Keep or switch.</strong> A later roll can extend your chain, create a different pair, or do both. Choose which to keep. Switching gives up the old chain's points and returns its dice to the rolling pool. Keep the new chain and choose whether to bank or roll the other dice again.</li><li><strong>A miss is a real risk.</strong> Without a matching die, you must switch to a new pair, use a legal enhancement, or accept a meltdown. You cannot bank the old chain after a miss just by choosing “keep.”</li><li><strong>Know the endings.</strong> A meltdown scores zero for this turn. Five different dice on the opening roll cost 10 points, with a floor of zero. Five matching dice automatically score and end your turn. Switching to a new pair or triple keeps your turn going.</li></ol>
-    <h3>Three ways to change your luck</h3><p><strong>Enrichment</strong> changes one available die to your chain value. Before choosing an opening chain, choose the die and an existing face value to form or improve a pair.</p><p><strong>Control Rod</strong> banks your pre-roll chain after a roll with no matching dice. It ends your turn.</p><p><strong>Fusion</strong> banks your current chain (including new matching dice) plus a different newly rolled pair. It ends your turn. On an opening split, select a chain first, then fuse the other pair.</p><p>Each ability is once per player per game. Only one ability per roll. Choose or use an ability before rolling again or ending the turn.</p>
+    <h3>Three ways to change your luck</h3><p><strong>Enrichment</strong> changes one eligible die from the latest roll to your chain value. Before choosing an opening chain, change a die to another rolled number to form or improve a pair. Held dice and dice just released by switching cannot be changed. It does not bank points unless it completes five matching dice.</p><p><strong>Control Rod</strong> banks your pre-roll chain after a roll with no matching dice. It ends your turn. You must already hold a chain; it cannot rescue an opening radiation leak.</p><p><strong>Fusion joins two different matching strands.</strong> You must hold a chain of at least two matching dice and have a second, newly rolled group of at least two matching dice of a different number. Fusion banks both strands and ends your turn. Include new matches to the held chain; unmatched dice do not score. On an opening split, choose one chain first, then fuse the other group. Dice released by switching must be rolled again before qualifying.</p><p><strong>Valid Fusion:</strong> held 5, 5 plus rolled 6, 6, 2 banks 10 + 12 = <strong>22 points</strong>; the single 2 does not score. Held 5, 5 plus rolled 5, 6, 6 banks 15 + 12 = <strong>27 points</strong>.</p><p><strong>Not valid:</strong> held 5, 5 plus rolled 6, 2, 3. There is no second matching strand. One pair and unrelated single dice cannot be fused. The same rule applies to you and every computer player.</p><p>Each ability is once per player per game. Only one ability per roll. Choose or use an ability before rolling again or ending the turn. Lit scoreboard LEDs mean an ability is unused, not necessarily usable on the current roll. Hover over an enhancement or focus it with the keyboard for its rules and current availability.</p>
+    <p>Use the <strong>Engage</strong> buttons beneath the LEDs on your reactor card. Hover over a button or focus it with the keyboard to see its rules and why it may be unavailable. Enrichment and Fusion open a chooser; Cancel or Escape closes it without spending the ability. Other players’ controls stay locked during your turn.</p>
     <h3>The final round</h3><p>When someone reaches the target, finish the current round so everyone has equal turns. Highest score wins. Tied leaders alone play extra full rounds until one leads. No extra tokens.</p>
     <h3>Read the risk</h3><p>The survival percentage includes either matching your chain or rolling a replacement pair; it excludes enhancements. Surviving by switching can still reduce your points. With linear scoring, banking is often the strongest choice, especially with just one die left.</p>
   </dialog>

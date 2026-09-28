@@ -11,6 +11,7 @@
             this.players = names.map((name, id) => ({ id, name: String(name).trim().slice(0, 24) || ('Player ' + (id + 1)), score: 0, turns: 0,
                 computer: computers && id > 0, tokens: { enrichment: enhancements, controlRod: enhancements, fusion: enhancements } }));
             this.target = target;
+            this.enhancementsEnabled = enhancements;
             this.random = random;
             this.current = 0;
             this.round = 1;
@@ -27,6 +28,14 @@
         get chainScore() { return points(this.chain, this.held.length); }
         get matches() { return this.available.filter(d => this.rolledIds.includes(d.id) && d.value === this.chain); }
         get alternatives() { return groups(this.available.filter(d => this.rolledIds.includes(d.id))).filter(g => g.value !== this.chain); }
+        get fusionOptions() {
+            // Both strands must contain actual, distinct matching dice. Released dice
+            // from a switched chain are excluded until they have been rolled again.
+            if (!this.chain || this.held.length < 2 || this.held.some(d => d.value !== this.chain)) return [];
+            const first = { value: this.chain, ids: [...this.held, ...(this.phase === 'REVIEW' ? this.matches : [])].map(d => d.id) };
+            return this.alternatives.map(second => ({ value: second.value, strands: [first, second],
+                score: points(first.value, first.ids.length) + points(second.value, second.ids.length) }));
+        }
         resetTurn() {
             this.dice = Array.from({ length: 5 }, (_, id) => ({ id, value: id + 1, state: 'active' }));
             this.chain = null;
@@ -94,7 +103,7 @@
             if (!['REVIEW', 'DECISION'].includes(this.phase) || this.enhancementUsed || !this.player.tokens[type]) return false;
             if (type === 'enrichment') return this.enrichmentOptions().length > 0;
             if (type === 'controlRod') return this.phase === 'REVIEW' && this.chain !== null && this.matches.length === 0;
-            if (type === 'fusion') return this.chain !== null && this.alternatives.length > 0;
+            if (type === 'fusion') return this.fusionOptions.length > 0;
             return false;
         }
         enrichmentOptions() {
@@ -120,20 +129,18 @@
         }
         fusion(value) {
             if (!this.canUse('fusion')) return false;
-            const other = this.alternatives.find(g => g.value === value);
-            if (!other) return false;
-            const count = this.held.length + (this.phase === 'REVIEW' ? this.matches.length : 0);
-            const score = points(this.chain, count) + points(value, other.ids.length);
+            const option = this.fusionOptions.find(g => g.value === value);
+            if (!option) return false;
             this.spend('fusion');
-            this.finish(score, 'Fusion', count + ' × ' + this.chain + ' + ' + other.ids.length + ' × ' + value + '. Both chains banked.');
+            this.finish(option.score, 'Fusion', option.strands.map(s => s.ids.length + ' × ' + s.value).join(' + ') + '. Two matching strands banked; unmatched dice do not score.', { strands: option.strands });
             return true;
         }
-        finish(score, title, detail) {
+        finish(score, title, detail, evidence = {}) {
             if (['TURN_END', 'GAME_OVER'].includes(this.phase)) return;
             const before = this.player.score;
             this.player.score = Math.max(0, before + score);
             this.player.turns++;
-            this.result = { player: this.player.name, playerId: this.current, round: this.round, title, detail, points: this.player.score - before };
+            this.result = { player: this.player.name, playerId: this.current, round: this.round, title, detail, points: this.player.score - before, ...evidence };
             this.history.unshift({ ...this.result });
             this.history = this.history.slice(0, 40);
             if (this.player.score >= this.target) this.finalRound = true;

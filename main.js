@@ -25,7 +25,7 @@ function playerInputs() {
 function render(focus = false) {
     uiManager.render(gameManager, busy);
     $('new-game-button').disabled = busy;
-    if (focus && !gameManager.player.computer) ($('choices').querySelector('button') || $('actions').querySelector('button'))?.focus({ preventScroll: true });
+    if (focus && !gameManager.player.computer && !$('victory-dialog').open) ($('choices').querySelector('button') || $('actions').querySelector('button'))?.focus({ preventScroll: true });
 }
 function scheduleComputer() {
     clearTimeout(computerTimer);
@@ -69,6 +69,8 @@ function openSetup() {
     $('setup-screen').hidden = false;
     $('new-game-button').hidden = true;
     $('restart-dialog').close();
+    $('victory-dialog').close();
+    diceController.stopFanfare();
     $('start-game-button').focus();
 }
 $('setup-form').addEventListener('submit', event => {
@@ -92,6 +94,7 @@ $('motion-button').addEventListener('click', () => {
 });
 $('sound-button').addEventListener('click', async () => {
     diceController.sound = !diceController.sound;
+    if (!diceController.sound) diceController.stopFanfare();
     await diceController.unlockAudio();
     $('sound-button').textContent = diceController.sound ? 'Sound on' : 'Sound off';
     $('sound-button').setAttribute('aria-pressed', String(diceController.sound));
@@ -101,5 +104,7 @@ $('close-rules').addEventListener('click', () => $('rules-dialog').close());
 $('new-game-button').addEventListener('click', () => $('restart-dialog').showModal());
 $('cancel-restart').addEventListener('click', () => $('restart-dialog').close());
 $('confirm-restart').addEventListener('click', openSetup);
+$('victory-replay').addEventListener('click', openSetup);
+$('victory-review').addEventListener('click', () => $('victory-dialog').close());
 playerInputs();
 [2, 5, 5, 3, 5].forEach((value, id) => $('demo-dice').append(makeDie(value, id, value === 5 ? 'held' : 'active', false)));
